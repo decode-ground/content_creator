@@ -2,6 +2,8 @@ import { generateImage } from "./_core/imageGeneration";
 import { storagePut } from "./storage";
 import { nanoid } from "nanoid";
 
+const PLACEHOLDER_PREFIX = "https://placehold.co/";
+
 /**
  * Generates a storyboard image for a scene and uploads it to S3
  */
@@ -11,13 +13,20 @@ export async function generateSceneStoryboard(
   sceneId: number
 ): Promise<{ imageUrl: string; imageKey: string }> {
   try {
-    // Generate the image
     const { url: imageUrl } = await generateImage({
       prompt,
     });
 
     if (!imageUrl) {
       throw new Error("Image generation failed - no URL returned");
+    }
+
+    // If it's a placeholder image, return it directly without S3 upload
+    if (imageUrl.startsWith(PLACEHOLDER_PREFIX)) {
+      return {
+        imageUrl,
+        imageKey: `placeholder/scene-${sceneId}`,
+      };
     }
 
     // Download the image and upload to S3
@@ -70,6 +79,14 @@ Generate a single, clear portrait image.`;
       throw new Error("Image generation failed - no URL returned");
     }
 
+    // If it's a placeholder image, return it directly without S3 upload
+    if (imageUrl.startsWith(PLACEHOLDER_PREFIX)) {
+      return {
+        imageUrl,
+        imageKey: `placeholder/character-${characterId}`,
+      };
+    }
+
     const response = await fetch(imageUrl);
     const buffer = await response.arrayBuffer();
 
@@ -117,6 +134,14 @@ Generate a single, cohesive environmental image.`;
 
     if (!imageUrl) {
       throw new Error("Image generation failed - no URL returned");
+    }
+
+    // If it's a placeholder image, return it directly without S3 upload
+    if (imageUrl.startsWith(PLACEHOLDER_PREFIX)) {
+      return {
+        imageUrl,
+        imageKey: `placeholder/setting-${settingId}`,
+      };
     }
 
     const response = await fetch(imageUrl);
