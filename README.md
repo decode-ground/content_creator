@@ -298,6 +298,6 @@ pnpm dev
 
 ## Related Documentation
 
-- [AGENT_ARCHITECTURE.md](../script_to_movie/AGENT_ARCHITECTURE.md) - Technical agent implementation details
-- [AGENT_INTEGRATION_GUIDE.md](../script_to_movie/AGENT_INTEGRATION_GUIDE.md) - Frontend integration patterns
-- [todo.md](../script_to_movie/todo.md) - Development roadmap
+- [AGENT_ARCHITECTURE.md](script_to_movie/AGENT_ARCHITECTURE.md) - Technical agent implementation details
+- [AGENT_INTEGRATION_GUIDE.md](script_to_movie/AGENT_INTEGRATION_GUIDE.md) - Frontend integration patterns
+- [todo.md](script_to_movie/todo.md) - Development roadmap
