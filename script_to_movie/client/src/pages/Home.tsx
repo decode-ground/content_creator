@@ -1,10 +1,11 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { trpc } from "@/lib/trpc";
+import { projectsApi } from "@/lib/api";
+import { useMutation } from "@tanstack/react-query";
 import { Film, Sparkles, Upload, ArrowRight, Play } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
@@ -16,7 +17,9 @@ export default function Home() {
   const [isOpen, setIsOpen] = useState(false);
   const [formData, setFormData] = useState({ title: "", scriptContent: "" });
 
-  const createProjectMutation = trpc.projects.create.useMutation();
+  const createProjectMutation = useMutation({
+    mutationFn: projectsApi.create,
+  });
 
   const handleCreateProject = async () => {
     if (!formData.title || !formData.scriptContent) {

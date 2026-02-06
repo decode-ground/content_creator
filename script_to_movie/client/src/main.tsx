@@ -1,17 +1,23 @@
-import { trpc } from "@/lib/trpc";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
-import superjson from "superjson";
 import App from "./App";
 import "./index.css";
+import { ApiError } from "./lib/api";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const handleUnauthorizedError = (error: unknown) => {
-  if (!(error instanceof TRPCClientError)) return;
-  // Just log the error - the UI will handle showing the login dialog
-  console.warn("[API] Unauthorized request:", error.message);
+  if (!(error instanceof ApiError)) return;
+  if (error.status === 401) {
+    console.warn("[API] Unauthorized request:", error.message);
+  }
 };
 
 queryClient.getQueryCache().subscribe((event) => {
@@ -28,25 +34,8 @@ queryClient.getMutationCache().subscribe((event) => {
   }
 });
 
-const trpcClient = trpc.createClient({
-  links: [
-    httpBatchLink({
-      url: "/api/trpc",
-      transformer: superjson,
-      fetch(input, init) {
-        return globalThis.fetch(input, {
-          ...(init ?? {}),
-          credentials: "include",
-        });
-      },
-    }),
-  ],
-});
-
 createRoot(document.getElementById("root")!).render(
-  <trpc.Provider client={trpcClient} queryClient={queryClient}>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </trpc.Provider>
+  <QueryClientProvider client={queryClient}>
+    <App />
+  </QueryClientProvider>
 );

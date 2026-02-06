@@ -4,7 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { trpc } from "@/lib/trpc";
+import { projectsApi } from "@/lib/api";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Film, Clock, CheckCircle, AlertCircle, Loader2, ArrowRight } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
@@ -15,9 +16,19 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
   const [formData, setFormData] = useState({ title: "", description: "", scriptContent: "" });
+  const queryClient = useQueryClient();
 
-  const projectsQuery = trpc.projects.list.useQuery();
-  const createProjectMutation = trpc.projects.create.useMutation();
+  const projectsQuery = useQuery({
+    queryKey: ["projects"],
+    queryFn: projectsApi.list,
+  });
+
+  const createProjectMutation = useMutation({
+    mutationFn: projectsApi.create,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
+  });
 
   const handleCreateProject = async () => {
     if (!formData.title || !formData.scriptContent) {

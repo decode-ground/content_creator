@@ -1,30 +1,35 @@
-import { trpc } from "@/lib/trpc";
-import { TRPCClientError } from "@trpc/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
+import { authApi, ApiError } from "@/lib/api";
 
 export function useAuth() {
-  const utils = trpc.useUtils();
+  const queryClient = useQueryClient();
 
-  const meQuery = trpc.auth.me.useQuery(undefined, {
+  const meQuery = useQuery({
+    queryKey: ["auth", "me"],
+    queryFn: authApi.me,
     retry: false,
     refetchOnWindowFocus: false,
   });
 
-  const registerMutation = trpc.auth.register.useMutation({
+  const registerMutation = useMutation({
+    mutationFn: authApi.register,
     onSuccess: () => {
-      utils.auth.me.invalidate();
+      queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     },
   });
 
-  const loginMutation = trpc.auth.login.useMutation({
+  const loginMutation = useMutation({
+    mutationFn: authApi.login,
     onSuccess: () => {
-      utils.auth.me.invalidate();
+      queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     },
   });
 
-  const logoutMutation = trpc.auth.logout.useMutation({
+  const logoutMutation = useMutation({
+    mutationFn: authApi.logout,
     onSuccess: () => {
-      utils.auth.me.setData(undefined, null);
+      queryClient.setQueryData(["auth", "me"], null);
     },
   });
 
@@ -46,18 +51,15 @@ export function useAuth() {
     try {
       await logoutMutation.mutateAsync();
     } catch (error: unknown) {
-      if (
-        error instanceof TRPCClientError &&
-        error.data?.code === "UNAUTHORIZED"
-      ) {
+      if (error instanceof ApiError && error.status === 401) {
         return;
       }
       throw error;
     } finally {
-      utils.auth.me.setData(undefined, null);
-      await utils.auth.me.invalidate();
+      queryClient.setQueryData(["auth", "me"], null);
+      await queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
     }
-  }, [logoutMutation, utils]);
+  }, [logoutMutation, queryClient]);
 
   const state = useMemo(() => {
     return {

@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { trpc } from "@/lib/trpc";
+import { projectsApi, workflowApi } from "@/lib/api";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { ArrowLeft, Play, Images, Loader2 } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
@@ -18,11 +19,28 @@ export default function ProjectDetail() {
   const [scriptContent, setScriptContent] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const projectQuery = trpc.projects.get.useQuery({ projectId });
-  const storyboardsQuery = trpc.projects.getStoryboards.useQuery({ projectId });
-  const finalMovieQuery = trpc.projects.getFinalMovie.useQuery({ projectId });
+  const projectQuery = useQuery({
+    queryKey: ["project", projectId],
+    queryFn: () => projectsApi.get(projectId),
+    enabled: projectId > 0,
+  });
 
-  const startWorkflowMutation = trpc.workflow.startWorkflow.useMutation();
+  const storyboardsQuery = useQuery({
+    queryKey: ["storyboards", projectId],
+    queryFn: () => projectsApi.getStoryboards(projectId),
+    enabled: projectId > 0,
+  });
+
+  const finalMovieQuery = useQuery({
+    queryKey: ["finalMovie", projectId],
+    queryFn: () => projectsApi.getFinalMovie(projectId),
+    enabled: projectId > 0,
+  });
+
+  const startWorkflowMutation = useMutation({
+    mutationFn: ({ projectId, workflowType }: { projectId: number; workflowType: string }) =>
+      workflowApi.start(projectId, workflowType),
+  });
 
   // Load script content on mount
   useEffect(() => {
