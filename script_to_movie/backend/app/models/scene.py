@@ -1,9 +1,15 @@
 from datetime import datetime
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy import String, Text, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.project import Project
+    from app.models.storyboard import StoryboardImage
+    from app.models.video import VideoPrompt, GeneratedVideo
 
 
 class Scene(Base):
@@ -30,17 +36,12 @@ class Scene(Base):
 
     # Relationships
     project: Mapped["Project"] = relationship(back_populates="scenes")
-    storyboard_images: Mapped[list["StoryboardImage"]] = relationship(
+    storyboard_images: Mapped[List["StoryboardImage"]] = relationship(
         back_populates="scene", lazy="selectin"
     )
-    video_prompts: Mapped[list["VideoPrompt"]] = relationship(
+    video_prompts: Mapped[List["VideoPrompt"]] = relationship(
         back_populates="scene", lazy="selectin"
     )
-    generated_videos: Mapped[list["GeneratedVideo"]] = relationship(
+    generated_videos: Mapped[List["GeneratedVideo"]] = relationship(
         back_populates="scene", lazy="selectin"
     )
-
-
-from app.models.project import Project
-from app.models.storyboard import StoryboardImage
-from app.models.video import VideoPrompt, GeneratedVideo

@@ -1,9 +1,13 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Text, Integer, ForeignKey, Enum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.scene import Scene
 
 
 class StoryboardImage(Base):
@@ -32,6 +36,3 @@ class StoryboardImage(Base):
 
     # Relationships
     scene: Mapped["Scene"] = relationship(back_populates="storyboard_images")
-
-
-from app.models.scene import Scene

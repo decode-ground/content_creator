@@ -1,9 +1,15 @@
 from datetime import datetime
+from typing import TYPE_CHECKING, List
 
 from sqlalchemy import String, Text, Enum, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.scene import Scene
+    from app.models.character import Character
+    from app.models.setting import Setting
 
 
 class Project(Base):
@@ -42,11 +48,6 @@ class Project(Base):
     )
 
     # Relationships
-    scenes: Mapped[list["Scene"]] = relationship(back_populates="project", lazy="selectin")
-    characters: Mapped[list["Character"]] = relationship(back_populates="project", lazy="selectin")
-    settings: Mapped[list["Setting"]] = relationship(back_populates="project", lazy="selectin")
-
-
-from app.models.scene import Scene
-from app.models.character import Character
-from app.models.setting import Setting
+    scenes: Mapped[List["Scene"]] = relationship(back_populates="project", lazy="selectin")
+    characters: Mapped[List["Character"]] = relationship(back_populates="project", lazy="selectin")
+    settings: Mapped[List["Setting"]] = relationship(back_populates="project", lazy="selectin")

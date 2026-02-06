@@ -1,9 +1,13 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Text, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.project import Project
 
 
 class Setting(Base):
@@ -28,6 +32,3 @@ class Setting(Base):
 
     # Relationships
     project: Mapped["Project"] = relationship(back_populates="settings")
-
-
-from app.models.project import Project

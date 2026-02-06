@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import String, Text, Enum, func
 from sqlalchemy.orm import Mapped, mapped_column
