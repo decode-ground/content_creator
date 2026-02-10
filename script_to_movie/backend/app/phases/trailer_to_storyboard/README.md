@@ -1,178 +1,250 @@
-# Phase 2: Trailer to Storyboard
+# Phase 2: Trailer to Storyboard — Developer Guide
 
-## Role
+## What This Phase Does
 
-Generates storyboard images for the selected trailer scenes. Transforms text descriptions into visual frames.
+Takes the scenes, character/setting descriptions, and trailer frames produced by Phase 1, and organizes them into a validated movie storyboard. Ensures every scene has a corresponding frame that adequately depicts it. If a frame is missing or poor quality, regenerates it using an image generation API.
 
-## Pipeline Position
+## How It Fits in the Pipeline
 
 ```
-[Script to Trailer] → [THIS PHASE] → [Storyboard to Movie]
+    ┌─────────────────────┐
+    │ Phase 1: Script     │
+    └──────┬──────────────┘
+           ↓
+    What Phase 1 gives you:
+    • Scene records (description, dialogue, characters, setting)
+    • Character records (with visualDescription)
+    • Setting records (with visualDescription)
+    • StoryboardImage records (one frame per scene, from trailer)
+           ↓
+    ┌─────────────┐
+    │  THIS PHASE  │  ← You are here
+    └──────┬──────┘
+           ↓
+    What you produce:
+    • Validated/enhanced StoryboardImage records
+    • Every scene paired with a quality frame
+           ↓
+    ┌─────────────────────┐
+    │ Phase 3: Full Movie │  ← Uses your frames as image references
+    └─────────────────────┘      for video generation
 ```
 
-## Input
+## Your Input (What to Read from DB)
 
-- Selected trailer scenes (from Phase 1)
-- Character visual descriptions
-- Setting visual descriptions
+```python
+from sqlalchemy import select
+from app.models.scene import Scene
+from app.models.character import Character
+from app.models.setting import Setting
+from app.models.storyboard import StoryboardImage
 
-## Output
+# Get all scenes in order
+result = await db.execute(
+    select(Scene)
+    .where(Scene.projectId == project_id)
+    .order_by(Scene.order)
+)
+scenes = result.scalars().all()
+# Each scene has: .description, .dialogue, .setting, .characters (JSON string)
 
-- Storyboard images for each trailer scene
-- Image prompts used for generation
+# Get character visual descriptions
+result = await db.execute(
+    select(Character).where(Character.projectId == project_id)
+)
+characters = result.scalars().all()
+# Each character has: .name, .visualDescription
 
-## Endpoints to Implement
+# Get setting visual descriptions
+result = await db.execute(
+    select(Setting).where(Setting.projectId == project_id)
+)
+settings = result.scalars().all()
+# Each setting has: .name, .visualDescription
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/phases/trailer-to-storyboard/{project_id}/generate` | POST | Generate storyboard frames |
-| `/api/phases/trailer-to-storyboard/{project_id}/status` | GET | Check generation status |
-
-## Files to Implement
-
-| File | Responsibility |
-|------|----------------|
-| `agents/storyboard_prompt.py` | Generate optimized image prompts |
-| `image_generator.py` | Call image generation API, upload to S3 |
-| `service.py` | Orchestrate prompt generation and image creation |
-| `router.py` | API endpoints |
-
-## Design Decisions
-
-### 1. Image Generation API
-
-Which API should power image generation?
-
-| API | Pros | Cons | Cost |
-|-----|------|------|------|
-| **DALL-E 3** | High quality, excellent prompt following, safe outputs | Rate limits, less artistic control | ~$0.04-0.12/image |
-| **Midjourney** (via proxy) | Best artistic quality, distinctive style | No official API, requires Discord bot or proxy | ~$0.02-0.05/image |
-| **Stable Diffusion XL** (Replicate) | Cost-effective, customizable, many models | Variable quality, requires prompt tuning | ~$0.002-0.01/image |
-| **Ideogram** | Good text rendering, stylistic control | Newer API, less tested at scale | ~$0.02-0.08/image |
-| **Leonardo.ai** | Cinematic presets, fine-tuned models | API availability varies | ~$0.01-0.03/image |
-| **Flux** (via Replicate/fal.ai) | High quality, fast, good prompt adherence | Newer model | ~$0.003-0.02/image |
-
-**Dependency to add** (choose one):
-```toml
-"openai>=1.0.0",        # For DALL-E 3
-"replicate>=0.15.0",    # For Replicate-hosted models
-"httpx>=0.26.0",        # For direct API calls to any service
+# Get existing storyboard frames (from Phase 1)
+result = await db.execute(
+    select(StoryboardImage).where(StoryboardImage.projectId == project_id)
+)
+frames = result.scalars().all()
+# Each frame has: .sceneId, .imageUrl, .imageKey, .prompt, .status
 ```
 
-**Questions to answer:**
-- What's your budget per trailer?
-- How important is artistic quality vs. speed?
-- Do you need consistent style across all images?
+## Your Output (What to Write/Update in DB)
 
-### 2. Image Consistency Strategy
+### 1. Validate Scene-to-Frame Mapping
 
-How do you maintain visual consistency for characters across multiple images?
+```python
+# Build a map of scene_id -> frame
+frame_map = {f.sceneId: f for f in frames}
 
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **Prompt engineering only** | Detailed character descriptions in every prompt | Simple but characters may drift between images |
-| **Seed locking** | Use same random seed for style consistency | Limited control, same seed ≠ same character |
-| **Reference images (img2img)** | Use previous images as style/character reference | More consistent but requires API support |
-| **IP-Adapter / ControlNet** | Use face/pose reference images | Best consistency but complex setup |
-| **Fine-tuned model** | Train LoRA on character reference images | Most consistent but expensive and slow |
-| **Character sheets** | Generate character reference sheet first, use in prompts | Good balance, adds extra step |
+for scene in scenes:
+    if scene.id not in frame_map:
+        # MISSING FRAME — must generate one
+        # Use image generation API with scene + character + setting descriptions
+        pass
+```
 
-**Questions to answer:**
-- How critical is character consistency for your use case?
-- Are you willing to add preprocessing steps?
-- Does your chosen API support image-to-image or reference features?
+### 2. Regenerate Poor Frames
 
-### 3. Prompt Construction Strategy
+If a frame doesn't adequately depict its scene, regenerate it:
 
-How should scene descriptions become image prompts?
+```python
+from app.core.storage import storage_client
 
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **Template-based** | Fixed structure: "[scene], [character], [setting], [style]" | Predictable results but rigid |
-| **LLM-generated** | Claude writes optimized prompts for chosen API | Flexible, API-optimized but variable |
-| **Hybrid** | Template structure with LLM-filled creative details | Good balance of control and creativity |
+# Generate a better image prompt using Claude
+prompt = await self.llm.invoke(
+    messages=[{
+        "role": "user",
+        "content": f"Create an image generation prompt for this scene:\n"
+            f"Scene: {scene.description}\n"
+            f"Characters: {character_descriptions}\n"
+            f"Setting: {setting_description}\n"
+            f"Make it cinematic, 16:9 aspect ratio, detailed lighting and composition."
+    }],
+    system="You are an expert at writing image generation prompts for cinematic storyboards.",
+)
 
-**Prompt components to consider:**
-- Scene action/composition
-- Character appearance and position
-- Setting/environment details
-- Lighting and mood
-- Camera angle (wide shot, close-up, etc.)
-- Art style guidance (cinematic, photorealistic, etc.)
-- Negative prompts (what to avoid)
+# Call your image generation API
+image_bytes = await image_generator.generate(prompt)
 
-### 4. Image Specifications
+# Upload to S3
+image_url = await storage_client.upload(
+    key=f"projects/{project_id}/storyboard/scene_{scene.sceneNumber}.png",
+    data=image_bytes,
+    content_type="image/png",
+)
 
-| Specification | Options | Recommendation |
-|---------------|---------|----------------|
-| **Aspect ratio** | 1:1, 16:9, 2.35:1 (cinemascope) | 16:9 for video compatibility |
-| **Resolution** | 1024x576, 1280x720, 1920x1080 | Match target video resolution |
-| **Format** | PNG (lossless), JPEG (smaller) | PNG for quality, JPEG for storage |
-| **Images per scene** | 1 (key moment) or 2-3 (sequence) | 1 for speed, more for storyboard detail |
+# Update the StoryboardImage record
+frame.imageUrl = image_url
+frame.imageKey = f"projects/{project_id}/storyboard/scene_{scene.sceneNumber}.png"
+frame.prompt = prompt
+frame.status = "completed"
+await db.commit()
+```
 
-### 5. Error Handling Strategy
+### 3. Update Project Status
 
-What happens when image generation fails?
+```python
+from sqlalchemy import select
+from app.models.project import Project
 
-| Scenario | Strategy |
-|----------|----------|
-| **API timeout** | Retry with exponential backoff (3 attempts) |
-| **Content filter rejection** | Modify prompt (remove flagged terms), retry |
-| **Rate limit hit** | Queue and delay, or fallback to secondary API |
-| **Low quality result** | Optional: use LLM to evaluate, regenerate if poor |
-| **Partial failure** | Save successful images, mark failed scenes for retry |
+result = await db.execute(select(Project).where(Project.id == project_id))
+project = result.scalar_one_or_none()
+project.status = "generating_storyboard"
+project.progress = 66
+await db.commit()
+```
 
-**Questions to answer:**
-- Should users be able to regenerate individual images?
-- Do you need a fallback API if primary fails?
-- How do you handle content moderation rejections?
+## Your Files (Implement in This Order)
 
-### 6. Background Processing
+| # | File | What It Does |
+|---|------|-------------|
+| 1 | `prompts.py` | LLM prompts for evaluating frames and generating image prompts |
+| 2 | `agents/storyboard_prompt.py` | Evaluates frame-scene match, generates optimized image prompts |
+| 3 | `image_generator.py` | Abstract interface for image generation API + placeholder |
+| 4 | `service.py` | Orchestrates validation and regeneration |
 
-Image generation takes 10-60 seconds per image. Choose an approach:
+## Step-by-Step Implementation Guide
 
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **Sequential in request** | Generate one by one, return when done | Simple but long HTTP timeout risk |
-| **Parallel generation** | Generate all images concurrently | Faster but may hit rate limits |
-| **Background job** | Queue generation, poll for status | Best UX but more infrastructure |
-| **WebSocket/SSE updates** | Real-time progress streaming | Best UX, more complex frontend |
+### Step 1: Create the Image Generator Interface
 
-**Questions to answer:**
-- How many images per trailer (affects total time)?
-- What's acceptable wait time for users?
-- Do you need real-time progress updates?
+In `image_generator.py`, define an abstract interface so you can swap APIs later:
 
-## Implementation Steps
+```python
+from abc import ABC, abstractmethod
 
-1. **Set up image generation client** in `image_generator.py`:
-   ```python
-   from openai import AsyncOpenAI
 
-   client = AsyncOpenAI()
+class ImageGenerator(ABC):
+    @abstractmethod
+    async def generate(self, prompt: str, width: int = 1024, height: int = 576) -> bytes:
+        """Generate an image from a prompt. Returns image bytes."""
+        ...
 
-   async def generate_image(prompt: str) -> bytes:
-       response = await client.images.generate(
-           model="dall-e-3",
-           prompt=prompt,
-           size="1024x1024",
-           response_format="url"
-       )
-       # Download and return image bytes
-   ```
 
-2. **Implement storyboard prompt agent**:
-   - Combine scene description + character visuals + setting visuals
-   - Optimize for image generation (cinematic style, composition, lighting)
+class PlaceholderImageGenerator(ImageGenerator):
+    """Returns a placeholder for testing until a real API is connected."""
+    async def generate(self, prompt: str, width: int = 1024, height: int = 576) -> bytes:
+        # For testing: return a minimal 1x1 PNG or download a placeholder
+        # Replace this with a real API (DALL-E, Flux, Stable Diffusion, etc.)
+        raise NotImplementedError("Connect a real image generation API here")
+```
 
-3. **Implement service.py**:
-   - Generate prompts for each trailer scene
-   - Call image generator
-   - Upload to S3 via `app/core/storage.py`
-   - Save StoryboardImage records
+When you're ready, implement a real generator:
+- **DALL-E 3**: `pip install openai` → use `AsyncOpenAI().images.generate()`
+- **Replicate (Flux/SDXL)**: `pip install replicate` → use `replicate.async_run()`
+- **Any HTTP API**: `pip install httpx` → make async HTTP calls
 
-4. **Update project status**: `parsed` → `generating_storyboard`
+### Step 2: Implement the Storyboard Prompt Agent
+
+This agent does two things:
+1. **Evaluates** if each trailer frame adequately depicts its scene
+2. **Generates** better image prompts when regeneration is needed
+
+The key is incorporating character and setting visual descriptions into the prompt to maintain consistency.
+
+```python
+from app.phases.base_agent import BaseAgent
+
+class StoryboardPromptAgent(BaseAgent):
+    @property
+    def name(self) -> str:
+        return "storyboard_prompt"
+
+    async def execute(self, db, project_id):
+        # 1. Load scenes, characters, settings, frames
+        # 2. For each scene, check if it has a frame
+        # 3. If missing or poor, generate an optimized image prompt:
+        #    - Include scene description
+        #    - Include relevant character visualDescriptions
+        #    - Include setting visualDescription
+        #    - Add cinematic style guidance
+        # 4. Return list of scenes needing regeneration with their prompts
+```
+
+### Step 3: Wire Up service.py
+
+```python
+async def run_generate_storyboards(db, project_id):
+    # 1. Run StoryboardPromptAgent to identify and create prompts
+    # 2. For scenes needing regeneration, call image_generator
+    # 3. Upload new images to S3
+    # 4. Update StoryboardImage records
+    # 5. Update project status
+```
+
+## Critical Requirements
+
+1. **Every scene must have exactly one StoryboardImage.** Phase 3 uses these as visual references for video generation. Validate this — if Phase 1 missed any, generate them here.
+
+2. **Frames must visually depict their scenes.** A generic or unrelated frame will produce poor video in Phase 3. The image should match the scene's setting, characters, and action.
+
+3. **Use character/setting visualDescriptions in image prompts.** This is how visual consistency is maintained. Always include the relevant character appearances and setting details from Phase 1.
+
+4. **16:9 aspect ratio** for video compatibility (1024x576 or 1920x1080).
+
+## Testing Your Work
+
+Before testing Phase 2, you need Phase 1 data in the database. You can either:
+- Run Phase 1 first (if implemented)
+- Manually insert test Scene + Character + Setting + StoryboardImage records
+
+```bash
+# Check storyboard frames for a project
+curl http://localhost:8000/api/projects/1/storyboards -b "session=YOUR_TOKEN"
+
+# Run storyboard generation/validation
+curl -X POST http://localhost:8000/api/phases/trailer-to-storyboard/1/generate \
+  -b "session=YOUR_TOKEN"
+
+# Check status
+curl http://localhost:8000/api/phases/trailer-to-storyboard/1/status \
+  -b "session=YOUR_TOKEN"
+
+# Verify updated storyboards
+curl http://localhost:8000/api/projects/1/storyboards -b "session=YOUR_TOKEN"
+```
 
 ## Reference
 
-See original implementation: `script_to_movie/server/imageGenerator.ts`
+See `AGENT_ARCHITECTURE.md` in the project root for the overall agent design patterns.

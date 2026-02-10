@@ -8,6 +8,7 @@ class SceneBase(BaseModel):
     description: str
     setting: str | None = None
     characters: str | None = None  # JSON array as string
+    dialogue: str | None = None  # spoken lines in the scene
     duration: int | None = None
     order: int
 
