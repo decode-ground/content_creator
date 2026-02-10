@@ -1,158 +1,277 @@
-# Phase 1: Script to Trailer
+# Phase 1: Script to Trailer — Developer Guide
 
-## Role
+## What This Phase Does
 
-Analyzes raw screenplays and extracts structured data for trailer production. This is the first phase of the pipeline.
+Takes a movie title and script/plot text from the user, and:
+1. Breaks the script into a full screenplay with individual scenes (including all dialogue)
+2. Generates detailed, consistent visual descriptions for every character
+3. Generates detailed, consistent visual descriptions for every setting/location
+4. Generates a trailer video using a text-to-video API
+5. Extracts one key frame from the trailer for each scene
 
-## Pipeline Position
+## How It Fits in the Pipeline
 
 ```
-[Script Upload] → [THIS PHASE] → [Trailer to Storyboard] → [Storyboard to Movie]
+User uploads script/plot
+         ↓
+    ┌─────────────┐
+    │  THIS PHASE  │  ← You are here
+    └──────┬──────┘
+           ↓
+    What you produce:
+    • Scene records (with dialogue)
+    • Character records (with visual descriptions)
+    • Setting records (with visual descriptions)
+    • Trailer video
+    • One storyboard frame per scene
+           ↓
+    ┌─────────────────────┐
+    │ Phase 2: Storyboard │  ← Reads your scenes + frames
+    └──────┬──────────────┘
+           ↓
+    ┌─────────────────────┐
+    │ Phase 3: Full Movie │  ← Uses your frames for video generation
+    └─────────────────────┘
 ```
 
-## Input
+## Your Input (What to Read from DB)
 
-- Raw screenplay text (from `project.scriptContent`)
+```python
+from sqlalchemy import select
+from app.models.project import Project
 
-## Output
+result = await db.execute(select(Project).where(Project.id == project_id))
+project = result.scalar_one_or_none()
 
-- Parsed scenes with descriptions
-- Character profiles with visual descriptions
-- Setting profiles with visual descriptions
-- Selected trailer scenes (3-5 key moments)
+# project.title — movie title
+# project.scriptContent — the raw script/plot text from the user
+```
 
-## Endpoints to Implement
+## Your Output (What to Write to DB)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/phases/script-to-trailer/{project_id}/analyze` | POST | Parse script, extract scenes |
-| `/api/phases/script-to-trailer/{project_id}/characters` | POST | Generate character consistency descriptions |
-| `/api/phases/script-to-trailer/{project_id}/settings` | POST | Generate setting consistency descriptions |
-| `/api/phases/script-to-trailer/{project_id}/select-scenes` | POST | Select key scenes for trailer |
+### 1. Scene Records
+```python
+from app.models.scene import Scene
+import json
 
-## Agents to Implement
+scene = Scene(
+    projectId=project_id,
+    sceneNumber=1,
+    title="The Dark Alley",
+    description="A dimly lit alley in downtown Chicago at night. Rain falls on wet cobblestones...",
+    dialogue="DETECTIVE HARRIS: (whispering) Stay behind me.\nSARAH: What did you see?",
+    setting="Downtown Chicago - Dark Alley",
+    characters=json.dumps(["Detective Harris", "Sarah"]),
+    duration=45,  # estimated seconds
+    order=1,
+)
+db.add(scene)
+```
 
-| Agent | File | Responsibility |
-|-------|------|----------------|
-| ScriptAnalysisAgent | `agents/script_analysis.py` | Parse screenplay structure, extract scenes |
-| CharacterConsistencyAgent | `agents/character_consistency.py` | Generate consistent visual descriptions for characters |
-| SettingConsistencyAgent | `agents/setting_consistency.py` | Generate consistent visual descriptions for locations |
-| TrailerSelectionAgent | `agents/trailer_selection.py` | Select most impactful scenes for trailer |
+### 2. Character Records
+```python
+from app.models.character import Character
 
-## Available Infrastructure
+character = Character(
+    projectId=project_id,
+    name="Detective Harris",
+    description="A weathered homicide detective in his late 40s, haunted by an unsolved case.",
+    visualDescription="Male, late 40s, short graying brown hair, square jaw with stubble, "
+        "tired dark brown eyes with crow's feet, wearing a rumpled dark gray trench coat "
+        "over a white dress shirt with loosened navy tie, medium build, 5'11\", "
+        "carries a worn leather shoulder holster",
+)
+db.add(character)
+```
 
-- `app/core/llm.py` - Claude client with `invoke()`, `invoke_structured()`, `invoke_json()`
-- `app/models/` - Scene, Character, Setting models
-- `prompts.py` - Define your LLM prompts here
+### 3. Setting Records
+```python
+from app.models.setting import Setting
 
-## Design Decisions
+setting = Setting(
+    projectId=project_id,
+    name="Downtown Chicago - Dark Alley",
+    description="A narrow alley between two brick buildings in a rough neighborhood.",
+    visualDescription="Narrow urban alley, wet red brick walls, dim yellow streetlight "
+        "at far end, overflowing dumpster, fire escape ladders, puddles reflecting "
+        "neon signs from the street, steam rising from a manhole, nighttime, "
+        "film noir lighting with hard shadows",
+)
+db.add(setting)
+```
 
-### 1. LLM Prompting Strategy
+### 4. Trailer Video
+```python
+from app.models.project import Project
+from app.core.storage import storage_client
 
-How should the script be processed by Claude?
+# After generating trailer video bytes from text-to-video API:
+trailer_url = await storage_client.upload(
+    key=f"projects/{project_id}/trailer.mp4",
+    data=trailer_video_bytes,
+    content_type="video/mp4",
+)
 
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **Single large prompt** | Send entire script in one API call | Simple implementation but may hit token limits for long scripts |
-| **Chunked processing** | Process script in sections, merge results | Handles long scripts but requires merge logic for scenes spanning chunks |
-| **Multi-pass refinement** | Initial extraction → refinement pass | Higher quality output but more API calls and cost |
+# Update project
+project.trailerUrl = trailer_url
+project.trailerKey = f"projects/{project_id}/trailer.mp4"
+await db.commit()
+```
 
-**Questions to answer:**
-- What's the maximum script length you need to support?
-- Is accuracy or cost more important?
+### 5. Storyboard Frames (one per scene)
+```python
+from app.models.storyboard import StoryboardImage
 
-### 2. Screenplay Format Support
+# After extracting frames from the trailer video:
+for scene in scenes:
+    frame_url = await storage_client.upload(
+        key=f"projects/{project_id}/frames/scene_{scene.sceneNumber}.png",
+        data=frame_bytes,
+        content_type="image/png",
+    )
+    storyboard = StoryboardImage(
+        sceneId=scene.id,
+        projectId=project_id,
+        imageUrl=frame_url,
+        imageKey=f"projects/{project_id}/frames/scene_{scene.sceneNumber}.png",
+        prompt=f"Frame for scene {scene.sceneNumber}: {scene.description[:200]}",
+        status="completed",
+    )
+    db.add(storyboard)
+```
 
-What input formats should be accepted?
+### 6. Update Project Status
+```python
+project.status = "parsed"
+project.progress = 33
+await db.commit()
+```
 
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **Strict format only** | Only accept .fountain or .fdx files | Simpler parsing, reliable structure, but may reject valid scripts |
-| **Flexible parsing** | Accept plain text, detect structure via LLM | More accessible to users but less reliable extraction |
-| **Format conversion** | Convert all inputs to standard format first | Consistent processing but adds conversion complexity |
+## Your Files (Implement in This Order)
 
-**Questions to answer:**
-- What format will users typically provide?
-- How much preprocessing are you willing to do?
+| # | File | What It Does |
+|---|------|-------------|
+| 1 | `prompts.py` | All LLM prompt strings for script parsing, character/setting descriptions |
+| 2 | `agents/script_analysis.py` | Parses script → creates Scene records with dialogue |
+| 3 | `agents/character_consistency.py` | Reads scenes → creates Character records with visual descriptions |
+| 4 | `agents/setting_consistency.py` | Reads scenes → creates Setting records with visual descriptions |
+| 5 | `agents/trailer_generation.py` | Generates trailer video via text-to-video API, extracts frames |
+| 6 | `service.py` | Calls agents in sequence, updates project status |
 
-### 3. Character/Setting Consistency Approach
+**Note:** Rename `agents/trailer_selection.py` to `agents/trailer_generation.py` — the name better reflects what it does.
 
-How should visual descriptions maintain consistency across scenes?
+## Step-by-Step Implementation Guide
 
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **Per-scene descriptions** | Generate fresh description for each scene | May have inconsistencies between scenes |
-| **Global reference sheet** | Create master description, reference everywhere | Consistent visuals but less scene-specific adaptation |
-| **Hybrid approach** | Master description + scene-specific variations | Best quality but more complex prompt engineering |
+### Step 1: Define Your LLM Output Schemas
 
-**Questions to answer:**
-- How important is visual consistency for your use case?
-- Will you use the same image generation model for all scenes?
+In your agent files, define Pydantic models for what you want Claude to return:
 
-### 4. Trailer Scene Selection Criteria
+```python
+from pydantic import BaseModel
 
-What makes a scene "trailer-worthy"?
+class ExtractedScene(BaseModel):
+    title: str
+    description: str  # visual description of what happens
+    dialogue: str     # all spoken lines, formatted as "CHARACTER: line"
+    setting: str      # location name
+    characters: list[str]  # character names in this scene
+    estimated_duration: int  # seconds
 
-| Criterion | Description |
-|-----------|-------------|
-| **Action balance** | Mix of action and dialogue scenes |
-| **Character introductions** | Include hero/villain first appearances |
-| **Plot coverage** | Key story beats without spoilers |
-| **Visual variety** | Different locations, times of day, moods |
-| **Emotional arc** | Build tension across selected scenes |
-| **Duration targets** | Total trailer length (30s, 60s, 90s) |
+class ScriptBreakdown(BaseModel):
+    scenes: list[ExtractedScene]
+```
 
-**Questions to answer:**
-- How many scenes should be selected? (typically 5-10)
-- Should users be able to override AI selections?
-- What's the target trailer duration?
+### Step 2: Implement ScriptAnalysisAgent
 
-### 5. Visual Description Format
+```python
+from app.phases.base_agent import BaseAgent
 
-How should character/setting descriptions be structured for image generation?
+class ScriptAnalysisAgent(BaseAgent):
+    @property
+    def name(self) -> str:
+        return "script_analysis"
 
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **Freeform text** | Natural language descriptions | Flexible but inconsistent |
-| **Structured JSON** | Fixed fields (hair, clothing, etc.) | Consistent but may miss nuances |
-| **Template-based** | "A [age] [gender] with [hair] wearing [clothing]..." | Balance of structure and flexibility |
+    async def execute(self, db, project_id):
+        # 1. Read project.scriptContent
+        # 2. Call self.llm.invoke_structured() with ScriptBreakdown schema
+        # 3. Create Scene records from the result
+        # 4. Return {"status": "success", "scenes_created": N}
+```
 
-**Questions to answer:**
-- What image generation API will Phase 2 use? (format should match)
-- Should descriptions include style guidance (lighting, mood)?
+See the example agent in `base_agent.py` for the complete pattern.
 
-## Implementation Steps
+### Step 3: Implement Character/Setting Agents
 
-1. **Define Pydantic schemas** for agent outputs:
-   ```python
-   class ScriptAnalysisResult(BaseModel):
-       title: str
-       scenes: list[SceneData]
-       characters: list[CharacterData]
-       settings: list[SettingData]
-   ```
+These agents READ the Scene records you just created and generate visual descriptions:
+- Read all scenes → extract unique character names → ask Claude for detailed visual descriptions → create Character records
+- Same pattern for settings
 
-2. **Implement agents** using the LLM client:
-   ```python
-   from app.core.llm import llm_client
+### Step 4: Implement Trailer Generation
 
-   async def analyze_script(script_content: str) -> ScriptAnalysisResult:
-       return await llm_client.invoke_structured(
-           messages=[{"role": "user", "content": script_content}],
-           output_schema=ScriptAnalysisResult,
-           system=SCRIPT_ANALYSIS_PROMPT
-       )
-   ```
+1. Build a text prompt from all scene descriptions
+2. Call a text-to-video API to generate a trailer
+3. Extract one frame per scene from the video (using ffmpeg/moviepy)
+4. Upload trailer + frames to S3
+5. Create StoryboardImage records
 
-3. **Implement service.py** to orchestrate agents and save to database.
+### Step 5: Wire Up service.py
 
-4. **Implement router.py** endpoints.
+Your `service.py` already has method signatures. Implement them by instantiating and calling each agent:
 
-5. **Update project status** after each step:
-   - `draft` → `parsing` → `parsed`
+```python
+from app.phases.script_to_trailer.agents.script_analysis import ScriptAnalysisAgent
+
+async def run_script_analysis(db, project_id):
+    agent = ScriptAnalysisAgent()
+    return await agent.safe_execute(db, project_id)
+```
+
+## Critical Requirements
+
+1. **EVERY scene must have dialogue** if there are spoken parts. Phase 3 uses `Scene.dialogue` to generate TTS audio. If you skip dialogue, the movie will be silent.
+
+2. **Character visualDescriptions must be detailed and consistent.** These descriptions are used by Phase 2 and 3 to maintain visual consistency across all generated images and videos. Include: age, gender, hair, eye color, build, clothing, distinguishing features.
+
+3. **EVERY scene must get exactly one StoryboardImage.** Phase 3 uses these images as visual references for video generation. A scene without a frame = no video for that scene.
+
+4. **Visual descriptions should be image-generation-friendly.** Write them as if they're image prompts: specific, visual, descriptive. Avoid abstract concepts.
+
+## Testing Your Work
+
+```bash
+# 1. Start the server
+cd backend && uvicorn app.main:app --reload
+
+# 2. Register a user
+curl -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"dev@test.com","name":"Dev","password":"password123"}'
+# Save the session cookie from the response
+
+# 3. Create a project with a script
+curl -X POST http://localhost:8000/api/projects/ \
+  -H "Content-Type: application/json" \
+  -b "session=YOUR_TOKEN" \
+  -d '{"title":"Test Movie","scriptContent":"Your test script here..."}'
+
+# 4. Run script analysis
+curl -X POST http://localhost:8000/api/phases/script-to-trailer/1/analyze \
+  -b "session=YOUR_TOKEN"
+
+# 5. Verify scenes were created
+curl http://localhost:8000/api/projects/1/scenes -b "session=YOUR_TOKEN"
+
+# 6. Run character/setting generation
+curl -X POST http://localhost:8000/api/phases/script-to-trailer/1/characters \
+  -b "session=YOUR_TOKEN"
+curl -X POST http://localhost:8000/api/phases/script-to-trailer/1/settings \
+  -b "session=YOUR_TOKEN"
+
+# 7. Verify
+curl http://localhost:8000/api/projects/1/characters -b "session=YOUR_TOKEN"
+curl http://localhost:8000/api/projects/1/settings -b "session=YOUR_TOKEN"
+```
 
 ## Reference
 
-See original implementations:
-- `script_to_movie/server/scriptAnalyzer.ts`
-- `script_to_movie/server/agents/ScriptAnalysisAgent.ts`
+The old TypeScript implementation is at `server/agents/ScriptAnalysisAgent.ts` — it shows the same multi-step LLM pattern but in TypeScript. The Python equivalent uses `self.llm.invoke_structured()` instead of `structuredLLMCall()`.

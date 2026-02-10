@@ -37,6 +37,8 @@ class Project(Base):
     )
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     errorMessage: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trailerUrl: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    trailerKey: Mapped[str | None] = mapped_column(String(500), nullable=True)
     createdAt: Mapped[datetime] = mapped_column(
         nullable=False,
         server_default=func.now(),

@@ -1,152 +1,144 @@
-"""Base Agent class - abstract base for all specialized agents."""
-
+import logging
 from abc import ABC, abstractmethod
-from typing import Any, TypeVar, Generic
-from pydantic import BaseModel
+from typing import Any
 
-from app.core.llm import llm_client
+from sqlalchemy.ext.asyncio import AsyncSession
 
-
-# Type variable for agent output schemas
-T = TypeVar("T", bound=BaseModel)
+from app.core.llm import LLMClient, llm_client
 
 
-class BaseAgent(ABC, Generic[T]):
+class BaseAgent(ABC):
     """
-    Abstract base class for all specialized agents in the pipeline.
+    Base class for all pipeline agents.
 
-    Each agent is responsible for a specific task and uses the LLM client
-    for reasoning and structured outputs. Agents should implement the
-    execute method to define their core logic.
+    Every agent follows the same pattern:
+    1. Receive a database session and a project_id
+    2. Read the data it needs from the database
+    3. Call the LLM (or external API) to process
+    4. Write results back to the database
+    5. Return a summary dict
 
-    Attributes:
-        name: Human-readable name of the agent
-        system_prompt: System-level instructions for the LLM
+    Subclasses MUST implement:
+    - name: str property — unique identifier for this agent
+    - execute(db, project_id) -> dict — the agent's main work
     """
 
-    def __init__(self, name: str, system_prompt: str):
-        """
-        Initialize the agent with a name and system prompt.
+    def __init__(self, llm: LLMClient | None = None):
+        self.llm = llm or llm_client
+        self.logger = logging.getLogger(f"agent.{self.name}")
 
-        Args:
-            name: Agent name for logging and identification
-            system_prompt: System instructions that define the agent's role and behavior
-        """
-        self.name = name
-        self.system_prompt = system_prompt
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique name for this agent, e.g. 'script_analysis'."""
+        ...
 
     @abstractmethod
-    async def execute(self, input_data: dict[str, Any]) -> T:
+    async def execute(self, db: AsyncSession, project_id: int) -> dict[str, Any]:
         """
-        Execute the agent's core logic.
-
-        This method must be implemented by all concrete agents. It should:
-        1. Validate input data
-        2. Perform the agent's task (usually involving LLM calls)
-        3. Return structured output as a Pydantic model
+        Run this agent's task.
 
         Args:
-            input_data: Dictionary containing all necessary inputs for the agent
+            db: Async database session (already open, do NOT close it)
+            project_id: The project to operate on
 
         Returns:
-            Pydantic model instance with structured output
+            dict with at minimum {"status": "success" | "error", "message": str}
+            Add any extra data relevant to the agent.
 
         Raises:
-            ValueError: If input data is invalid
-            Exception: If agent execution fails
+            Should NOT raise. Catch exceptions and return {"status": "error", ...}
         """
-        pass
+        ...
 
-    async def reason(
-        self,
-        messages: list[dict[str, str]],
-        temperature: float = 0.7,
-        max_tokens: int = 4096
-    ) -> str:
-        """
-        Perform chain-of-thought reasoning with the LLM.
+    async def safe_execute(self, db: AsyncSession, project_id: int) -> dict[str, Any]:
+        """Wrapper that catches all exceptions. Used by the orchestrator."""
+        try:
+            self.logger.info(f"Starting {self.name} for project {project_id}")
+            result = await self.execute(db, project_id)
+            self.logger.info(
+                f"Completed {self.name} for project {project_id}: {result.get('status')}"
+            )
+            return result
+        except Exception as e:
+            self.logger.error(
+                f"Agent {self.name} failed for project {project_id}: {e}", exc_info=True
+            )
+            return {"status": "error", "message": str(e)}
 
-        Use this method when you need the agent to reason through a problem
-        and return a natural language response.
 
-        Args:
-            messages: List of message dicts with 'role' and 'content' keys
-            temperature: Sampling temperature (0.0 = deterministic, 1.0 = creative)
-            max_tokens: Maximum tokens in response
-
-        Returns:
-            LLM's text response
-        """
-        return await llm_client.invoke(
-            messages=messages,
-            system=self.system_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-
-    async def reason_structured(
-        self,
-        messages: list[dict[str, str]],
-        output_schema: type[T],
-        temperature: float = 0.7,
-        max_tokens: int = 4096
-    ) -> T:
-        """
-        Perform reasoning and return structured output validated by a Pydantic schema.
-
-        This is the preferred method for agents that need to return structured data.
-        The LLM output will be automatically validated against the schema.
-
-        Args:
-            messages: List of message dicts with 'role' and 'content' keys
-            output_schema: Pydantic model class defining the expected output structure
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens in response
-
-        Returns:
-            Instance of output_schema with validated LLM output
-
-        Raises:
-            ValidationError: If LLM output doesn't match schema
-        """
-        return await llm_client.invoke_structured(
-            messages=messages,
-            system=self.system_prompt,
-            output_schema=output_schema,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-
-    async def reason_json(
-        self,
-        messages: list[dict[str, str]],
-        temperature: float = 0.7,
-        max_tokens: int = 4096
-    ) -> dict[str, Any]:
-        """
-        Perform reasoning and return JSON output.
-
-        Use this when you need JSON output but don't have a predefined schema.
-        For structured outputs with validation, prefer reason_structured().
-
-        Args:
-            messages: List of message dicts with 'role' and 'content' keys
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens in response
-
-        Returns:
-            Dictionary with parsed JSON response
-
-        Raises:
-            JSONDecodeError: If LLM output is not valid JSON
-        """
-        return await llm_client.invoke_json(
-            messages=messages,
-            system=self.system_prompt,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-
-    def __repr__(self) -> str:
-        """String representation of the agent."""
-        return f"{self.__class__.__name__}(name='{self.name}')"
+# =============================================================================
+# EXAMPLE AGENT (for reference — copy this pattern for your agents)
+# =============================================================================
+#
+# from pydantic import BaseModel
+# from sqlalchemy import select
+# from sqlalchemy.ext.asyncio import AsyncSession
+#
+# from app.models.project import Project
+# from app.models.scene import Scene
+# from app.phases.base_agent import BaseAgent
+#
+#
+# # Step 1: Define a Pydantic model for the LLM's structured output
+# class SceneExtraction(BaseModel):
+#     title: str
+#     description: str
+#     dialogue: str
+#     setting: str
+#     characters: list[str]
+#     duration: int
+#
+#
+# class SceneListOutput(BaseModel):
+#     scenes: list[SceneExtraction]
+#
+#
+# class ExampleScriptAnalysisAgent(BaseAgent):
+#     @property
+#     def name(self) -> str:
+#         return "example_script_analysis"
+#
+#     async def execute(self, db: AsyncSession, project_id: int) -> dict:
+#         # Step 2: Read from database
+#         result = await db.execute(select(Project).where(Project.id == project_id))
+#         project = result.scalar_one_or_none()
+#         if not project:
+#             return {"status": "error", "message": "Project not found"}
+#
+#         # Step 3: Call LLM with structured output
+#         scene_list = await self.llm.invoke_structured(
+#             messages=[
+#                 {
+#                     "role": "user",
+#                     "content": f"Break this script into scenes:\n\n{project.scriptContent}",
+#                 }
+#             ],
+#             output_schema=SceneListOutput,
+#             system="You are a screenplay analyst. Break the script into distinct scenes.",
+#         )
+#
+#         # Step 4: Write results to database
+#         import json
+#         for i, scene_data in enumerate(scene_list.scenes):
+#             scene = Scene(
+#                 projectId=project_id,
+#                 sceneNumber=i + 1,
+#                 title=scene_data.title,
+#                 description=scene_data.description,
+#                 dialogue=scene_data.dialogue,
+#                 setting=scene_data.setting,
+#                 characters=json.dumps(scene_data.characters),
+#                 duration=scene_data.duration,
+#                 order=i + 1,
+#             )
+#             db.add(scene)
+#
+#         await db.commit()
+#
+#         # Step 5: Return summary
+#         return {
+#             "status": "success",
+#             "message": f"Extracted {len(scene_list.scenes)} scenes",
+#             "scenes_created": len(scene_list.scenes),
+#         }

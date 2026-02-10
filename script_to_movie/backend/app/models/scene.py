@@ -22,6 +22,7 @@ class Scene(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     setting: Mapped[str | None] = mapped_column(String(255), nullable=True)
     characters: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON array
+    dialogue: Mapped[str | None] = mapped_column(Text, nullable=True)  # spoken lines in the scene
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     order: Mapped[int] = mapped_column(Integer, nullable=False)
     createdAt: Mapped[datetime] = mapped_column(

@@ -1,443 +1,157 @@
 # Agent Integration Guide
 
-## Frontend-Agent Communication Flow
+## How the Frontend Talks to Agents
 
-### 1. User Initiates Workflow
+The frontend communicates with agents through REST API endpoints. Each phase has its own set of endpoints that trigger agent execution.
+
+### Triggering a Phase
 
 ```
 User clicks "Parse Script" button
-    ↓
-Frontend calls trpc.workflow.startWorkflow
-    ↓
-Backend initializes WorkflowOrchestrator
-    ↓
-First agent (ScriptAnalysisAgent) begins execution
-    ↓
-Frontend polls trpc.workflow.getWorkflowStatus
+    |
+    v
+Frontend calls POST /api/phases/script-to-trailer/{project_id}/analyze
+    |
+    v
+Backend router calls service.run_script_analysis(db, project_id)
+    |
+    v
+Service creates ScriptAnalysisAgent and calls agent.safe_execute(db, project_id)
+    |
+    v
+Agent reads from DB, calls Claude, writes results to DB
+    |
+    v
+Response returned to frontend with status and summary
 ```
 
-### 2. Real-Time Progress Updates
+### Checking Progress
+
+```
+Frontend polls GET /api/workflow/{project_id}/status
+    |
+    v
+Returns: { projectId, status, progress, currentStep, error }
+```
+
+## API Endpoints by Phase
+
+### Phase 1: Script to Trailer
+
+```bash
+# Step 1: Parse the script into scenes
+POST /api/phases/script-to-trailer/{project_id}/analyze
+
+# Step 2: Generate character visual descriptions
+POST /api/phases/script-to-trailer/{project_id}/characters
+
+# Step 3: Generate setting visual descriptions
+POST /api/phases/script-to-trailer/{project_id}/settings
+
+# Step 4: Generate trailer video and extract frames
+POST /api/phases/script-to-trailer/{project_id}/trailer
+
+# Verify results
+GET /api/projects/{project_id}/scenes
+GET /api/projects/{project_id}/characters
+GET /api/projects/{project_id}/settings
+GET /api/projects/{project_id}/storyboards
+```
+
+### Phase 2: Trailer to Storyboard
+
+```bash
+# Validate and regenerate storyboard frames
+POST /api/phases/trailer-to-storyboard/{project_id}/generate
+
+# Check progress
+GET /api/phases/trailer-to-storyboard/{project_id}/status
+
+# Verify results
+GET /api/projects/{project_id}/storyboards
+```
+
+### Phase 3: Storyboard to Movie
+
+```bash
+# Step 1: Generate video prompts
+POST /api/phases/storyboard-to-movie/{project_id}/prompts
+
+# Step 2: Generate video clips
+POST /api/phases/storyboard-to-movie/{project_id}/generate
+
+# Step 3: Assemble final movie (TTS + combine + concat)
+POST /api/phases/storyboard-to-movie/{project_id}/assemble
+
+# Check progress
+GET /api/phases/storyboard-to-movie/{project_id}/status
+
+# Get the final movie
+GET /api/projects/{project_id}/movie
+```
+
+### Full Pipeline (All Phases)
+
+```bash
+# Run all 3 phases automatically
+POST /api/workflow/{project_id}/start
+
+# Check overall progress
+GET /api/workflow/{project_id}/status
+```
+
+## Frontend Progress Tracking
+
+The frontend can poll the workflow status endpoint to show progress:
 
 ```typescript
-// Frontend component
-export function WorkflowProgress({ projectId }) {
-  const [progress, setProgress] = useState(0);
-  
-  // Poll workflow status every 2 seconds
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      const status = await trpc.workflow.getWorkflowStatus.useQuery({ projectId });
-      setProgress(status.progress);
-      
-      if (status.status === "completed" || status.status === "failed") {
-        clearInterval(interval);
-      }
-    }, 2000);
-    
-    return () => clearInterval(interval);
-  }, [projectId]);
-  
-  return (
-    <div className="progress-bar" style={{ width: `${progress}%` }}>
-      {progress}%
-    </div>
-  );
+// Poll every 2 seconds until complete
+const checkProgress = async (projectId: number) => {
+  const response = await fetch(`/api/workflow/${projectId}/status`);
+  const data = await response.json();
+  // data.progress is 0-100
+  // data.status is "pending", "parsed", "generating_storyboard", "completed", "failed"
+  return data;
+};
+```
+
+### Progress Breakdown
+
+| Progress Range | What's Happening |
+|---------------|-----------------|
+| 0-33% | Phase 1: Parsing script, generating descriptions, creating trailer |
+| 33-66% | Phase 2: Validating/regenerating storyboard frames |
+| 66-100% | Phase 3: Generating videos, TTS audio, assembling movie |
+
+## Response Format
+
+All agent endpoints return a JSON response:
+
+```json
+{
+  "status": "success",
+  "message": "Script analysis complete",
+  "scenes_created": 12
 }
 ```
 
-### 3. Agent Execution Logs Display
+On error:
+
+```json
+{
+  "status": "error",
+  "message": "Failed to parse script: ..."
+}
+```
+
+## Authentication
+
+All endpoints require authentication. The frontend sends a session cookie:
 
 ```typescript
-// Display agent reasoning and outputs
-export function AgentExecutionLogs({ projectId }) {
-  const logs = trpc.workflow.getWorkflowLogs.useQuery({ projectId });
-  
-  return (
-    <div className="logs-container">
-      {logs.data?.logs.map((log) => (
-        <div key={log.timestamp} className="log-entry">
-          <span className="agent-name">{log.agentName}</span>
-          <span className="timestamp">{log.timestamp}</span>
-          <p className="message">{log.message}</p>
-          
-          {/* Show reasoning if available */}
-          {log.reasoning && (
-            <details>
-              <summary>View Reasoning</summary>
-              <pre>{log.reasoning}</pre>
-            </details>
-          )}
-          
-          {/* Show output if available */}
-          {log.output && (
-            <details>
-              <summary>View Output</summary>
-              <pre>{JSON.stringify(log.output, null, 2)}</pre>
-            </details>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-```
-
-## Agent Execution Sequence
-
-### Full Pipeline Execution
-
-```
-1. ScriptAnalysisAgent
-   Input: { scriptContent, projectTitle }
-   Output: { title, summary, sceneCount, characterCount, ... }
-   Next: SceneBreakdownAgent
-   
-2. SceneBreakdownAgent
-   Input: { scenes, scriptContent }
-   Output: [{ sceneNumber, title, description, setting, characters, duration }]
-   Next: CharacterConsistencyAgent & SettingConsistencyAgent (parallel)
-   
-3. CharacterConsistencyAgent (parallel with SettingConsistencyAgent)
-   Input: { scenes, characters }
-   Output: [{ name, description, visualDescription, appearances }]
-   Next: StoryboardPromptAgent
-   
-4. SettingConsistencyAgent (parallel with CharacterConsistencyAgent)
-   Input: { scenes, settings }
-   Output: [{ name, description, visualDescription, appearances }]
-   Next: StoryboardPromptAgent
-   
-5. StoryboardPromptAgent
-   Input: { scenes, characters, settings }
-   Output: [{ sceneId, optimizedPrompt, score }]
-   Next: VideoPromptAgent
-   
-6. VideoPromptAgent
-   Input: { scenes, characters, settings, storyboardPrompts }
-   Output: [{ sceneId, videoPrompt, duration, audioSuggestions }]
-   Next: VideoGenerationAgent
-   
-7. VideoGenerationAgent
-   Input: { scenes, videoPrompts }
-   Output: [{ sceneId, videoUrl, duration, status }]
-   Next: VideoAssemblyAgent
-   
-8. VideoAssemblyAgent
-   Input: { videoClips, transitionDuration }
-   Output: { movieUrl, totalDuration, status }
-   Done
-```
-
-## Prompt Engineering Integration
-
-### Dynamic Prompt Optimization
-
-```typescript
-// In agent execution
-async execute(input: ScriptAnalysisInput): Promise<AgentResult> {
-  // Step 1: Generate initial prompt
-  const initialPrompt = this.generatePrompt(input);
-  
-  // Step 2: Optimize prompt
-  const optimization = await PromptOptimizer.optimizePrompt(
-    initialPrompt,
-    `Analyzing screenplay: ${input.projectTitle}`,
-    "accuracy"
-  );
-  
-  // Step 3: Log optimization for debugging
-  console.log("Prompt Optimization:", {
-    originalScore: 50,
-    optimizedScore: optimization.score,
-    improvements: optimization.improvements
-  });
-  
-  // Step 4: Execute with optimized prompt
-  const result = await this.reasonWithLLM(optimization.optimizedPrompt);
-  
-  return this.success(result.conclusion, result.reasoning, "NextAgent");
-}
-```
-
-### Few-Shot Prompting
-
-```typescript
-// Create few-shot examples for better results
-const fewShotPrompt = PromptOptimizer.createFewShotPrompt(
-  `Analyze this screenplay scene and extract key information:`,
-  [
-    {
-      input: `INT. COFFEE SHOP - MORNING\nJohn sits at a table, nervously checking his watch...`,
-      output: `{"setting": "Coffee Shop", "characters": ["John"], "mood": "tense", "duration": 30}`
-    },
-    {
-      input: `EXT. ROOFTOP - NIGHT\nSarah and Tom stand at the edge, looking at the city...`,
-      output: `{"setting": "Rooftop", "characters": ["Sarah", "Tom"], "mood": "romantic", "duration": 45}`
-    }
-  ]
-);
-
-// Use in agent
-const result = await this.reasonWithLLM(fewShotPrompt);
-```
-
-## Error Recovery & Refinement
-
-### Automatic Prompt Refinement on Failure
-
-```typescript
-async executeWithRetry(input: any, maxRetries: number = 3): Promise<AgentResult> {
-  let lastError: string | null = null;
-  
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const result = await this.execute(input);
-      
-      if (result.success) {
-        return result;
-      }
-      
-      lastError = result.error;
-      
-      // Refine prompt based on error
-      if (attempt < maxRetries) {
-        const refinedPrompt = await this.refinePromptForError(
-          this.currentPrompt,
-          lastError
-        );
-        this.currentPrompt = refinedPrompt;
-      }
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : "Unknown error";
-    }
-  }
-  
-  return this.failure(lastError || "Max retries exceeded");
-}
-
-private async refinePromptForError(prompt: string, error: string): Promise<string> {
-  const refinement = await PromptOptimizer.optimizePrompt(
-    prompt,
-    `Previous error: ${error}. Refine the prompt to avoid this error.`,
-    "accuracy"
-  );
-  
-  return refinement.optimizedPrompt;
-}
-```
-
-## Streaming Agent Outputs
-
-### Real-Time Streaming to Frontend
-
-```typescript
-// Backend: Stream agent reasoning
-export async function* streamAgentExecution(agent: Agent, input: any) {
-  const result = await agent.execute(input);
-  
-  // Yield reasoning in real-time
-  if (result.reasoning) {
-    yield {
-      type: "reasoning",
-      data: result.reasoning,
-      timestamp: new Date()
-    };
-  }
-  
-  // Yield output
-  yield {
-    type: "output",
-    data: result.data,
-    timestamp: new Date()
-  };
-  
-  // Yield next agent
-  if (result.nextAgent) {
-    yield {
-      type: "next_agent",
-      data: result.nextAgent,
-      timestamp: new Date()
-    };
-  }
-}
-
-// Frontend: Consume streaming updates
-async function* watchAgentExecution(projectId: number) {
-  const eventSource = new EventSource(`/api/workflow/stream/${projectId}`);
-  
-  eventSource.onmessage = (event) => {
-    const update = JSON.parse(event.data);
-    yield update;
-  };
-}
-```
-
-## Agent Performance Monitoring
-
-### Track Agent Metrics
-
-```typescript
-interface AgentExecutionMetrics {
-  agentName: string;
-  executionTime: number;
-  promptOptimizationScore: number;
-  outputQuality: number;
-  success: boolean;
-  retryCount: number;
-}
-
-// Log metrics after each execution
-function logAgentMetrics(metrics: AgentExecutionMetrics) {
-  console.log(`[${metrics.agentName}]`, {
-    duration: `${metrics.executionTime}ms`,
-    promptScore: metrics.promptOptimizationScore,
-    quality: metrics.outputQuality,
-    success: metrics.success,
-    retries: metrics.retryCount
-  });
-  
-  // Store in database for analytics
-  db.agentMetrics.insert(metrics);
-}
-```
-
-## UI Components for Agent Visualization
-
-### Workflow Visualization
-
-```typescript
-export function WorkflowVisualization({ projectId }) {
-  const execution = trpc.workflow.getWorkflowStatus.useQuery({ projectId });
-  const logs = trpc.workflow.getWorkflowLogs.useQuery({ projectId });
-  
-  return (
-    <div className="workflow-viz">
-      {/* Agent pipeline */}
-      <div className="agent-pipeline">
-        {AGENT_SEQUENCE.map((agentName, index) => (
-          <AgentCard
-            key={agentName}
-            name={agentName}
-            status={getAgentStatus(logs.data, agentName)}
-            isActive={execution.data?.currentAgent === agentName}
-            order={index + 1}
-          />
-        ))}
-      </div>
-      
-      {/* Progress bar */}
-      <ProgressBar progress={execution.data?.progress || 0} />
-      
-      {/* Execution logs */}
-      <ExecutionLogs logs={logs.data} />
-    </div>
-  );
-}
-
-function AgentCard({ name, status, isActive, order }) {
-  return (
-    <div className={`agent-card ${status} ${isActive ? "active" : ""}`}>
-      <div className="agent-order">{order}</div>
-      <div className="agent-name">{name}</div>
-      <div className="agent-status">
-        {status === "completed" && <CheckIcon />}
-        {status === "running" && <SpinnerIcon />}
-        {status === "failed" && <ErrorIcon />}
-        {status === "pending" && <ClockIcon />}
-      </div>
-    </div>
-  );
-}
-```
-
-### Prompt Inspection Panel
-
-```typescript
-export function PromptInspectionPanel({ agentName, projectId }) {
-  const logs = trpc.workflow.getWorkflowLogs.useQuery({ projectId });
-  const agentLog = logs.data?.find(l => l.agentName === agentName);
-  
-  return (
-    <div className="prompt-panel">
-      <h3>Prompt Inspection: {agentName}</h3>
-      
-      {/* Original prompt */}
-      <section>
-        <h4>Original Prompt</h4>
-        <pre>{agentLog?.originalPrompt}</pre>
-      </section>
-      
-      {/* Optimized prompt */}
-      <section>
-        <h4>Optimized Prompt</h4>
-        <pre>{agentLog?.optimizedPrompt}</pre>
-        <div className="score">Score: {agentLog?.promptScore}/100</div>
-      </section>
-      
-      {/* Improvements */}
-      <section>
-        <h4>Improvements Made</h4>
-        <ul>
-          {agentLog?.improvements.map((imp) => (
-            <li key={imp}>{imp}</li>
-          ))}
-        </ul>
-      </section>
-      
-      {/* Agent reasoning */}
-      <section>
-        <h4>Agent Reasoning</h4>
-        <pre>{agentLog?.reasoning}</pre>
-      </section>
-      
-      {/* Output */}
-      <section>
-        <h4>Agent Output</h4>
-        <pre>{JSON.stringify(agentLog?.output, null, 2)}</pre>
-      </section>
-    </div>
-  );
-}
-```
-
-## Best Practices
-
-1. **Prompt Caching**: Cache optimized prompts to reduce API calls
-2. **Parallel Execution**: Run independent agents in parallel
-3. **Error Recovery**: Implement automatic prompt refinement on failures
-4. **Progress Tracking**: Update frontend with real-time progress
-5. **Logging**: Log all agent executions for debugging and analytics
-6. **Validation**: Validate agent outputs before passing to next agent
-7. **Monitoring**: Track agent performance metrics over time
-8. **User Feedback**: Allow users to provide feedback on agent outputs
-
-## Testing Agents
-
-```typescript
-// Unit test for agent
-describe("ScriptAnalysisAgent", () => {
-  it("should analyze screenplay structure", async () => {
-    const agent = new ScriptAnalysisAgent(mockContext);
-    const result = await agent.execute({
-      scriptContent: mockScript,
-      projectTitle: "Test Script"
-    });
-    
-    expect(result.success).toBe(true);
-    expect(result.data.sceneCount).toBeGreaterThan(0);
-    expect(result.data.characterCount).toBeGreaterThan(0);
-    expect(result.nextAgent).toBe("SceneBreakdownAgent");
-  });
+// Cookie is set automatically after login
+const response = await fetch('/api/phases/script-to-trailer/1/analyze', {
+  method: 'POST',
+  credentials: 'include',  // sends the session cookie
 });
 ```
-
-## Summary
-
-The agent integration provides:
-- **Modular Architecture**: Each agent handles specific tasks
-- **Real-Time Tracking**: Frontend monitors agent execution
-- **Prompt Optimization**: Automatic refinement for better outputs
-- **Error Recovery**: Intelligent retry and refinement
-- **Performance Monitoring**: Track agent metrics
-- **User Visibility**: Show reasoning and outputs
-- **Extensibility**: Easy to add new agents

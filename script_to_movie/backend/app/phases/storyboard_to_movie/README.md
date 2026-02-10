@@ -1,246 +1,364 @@
-# Phase 3: Storyboard to Movie
+# Phase 3: Storyboard to Full Movie — Developer Guide
 
-## Role
+## What This Phase Does
 
-Generates video clips from storyboard frames and assembles them into the final trailer. This is the final phase of the pipeline.
+Takes each scene's storyboard image and description, and:
+1. Generates optimized video prompts from scene descriptions
+2. Generates a video clip for each scene using image-to-video generation (storyboard image as visual reference, scene description as text prompt)
+3. Generates TTS (text-to-speech) audio from each scene's dialogue
+4. Combines video + audio per scene
+5. Assembles all scene videos into the final full movie
 
-## Pipeline Position
+## How It Fits in the Pipeline
 
 ```
-[Script to Trailer] → [Trailer to Storyboard] → [THIS PHASE] → [Final Movie]
+    ┌─────────────────────┐
+    │ Phase 1: Script     │  ← Created scenes with dialogue
+    └──────┬──────────────┘
+           ↓
+    ┌─────────────────────┐
+    │ Phase 2: Storyboard │  ← Validated/enhanced frames
+    └──────┬──────────────┘
+           ↓
+    What you receive:
+    • Scene records (description, dialogue, characters, setting, duration, order)
+    • StoryboardImage records (one per scene, with imageUrl)
+           ↓
+    ┌─────────────┐
+    │  THIS PHASE  │  ← You are here
+    └──────┬──────┘
+           ↓
+    What you produce:
+    • Video clip per scene (with TTS audio)
+    • Final assembled full movie (MP4)
 ```
 
-## Input
+## Your Input (What to Read from DB)
 
-- Storyboard images (from Phase 2)
-- Scene descriptions and durations
-- Character/setting context
+```python
+from sqlalchemy import select
+from app.models.scene import Scene
+from app.models.storyboard import StoryboardImage
 
-## Output
+# Get all scenes in order
+result = await db.execute(
+    select(Scene)
+    .where(Scene.projectId == project_id)
+    .order_by(Scene.order)
+)
+scenes = result.scalars().all()
+# Each scene has:
+#   .description — visual description of the scene (use as video prompt)
+#   .dialogue — spoken lines (use for TTS audio generation)
+#   .characters — JSON string of character names
+#   .setting — location name
+#   .duration — estimated duration in seconds
+#   .order — scene sequence number
 
-- Video clips for each scene
-- Assembled final trailer video
+# Get storyboard frames (one per scene)
+result = await db.execute(
+    select(StoryboardImage).where(StoryboardImage.projectId == project_id)
+)
+frames = result.scalars().all()
+# Each frame has:
+#   .sceneId — links to the scene
+#   .imageUrl — S3 URL of the storyboard image (use as image reference for video gen)
+#   .status — should be "completed"
+```
 
-## Endpoints to Implement
+## Your Output (What to Write to DB)
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/phases/storyboard-to-movie/{project_id}/prompts` | POST | Generate video prompts |
-| `/api/phases/storyboard-to-movie/{project_id}/generate` | POST | Generate video clips |
-| `/api/phases/storyboard-to-movie/{project_id}/assemble` | POST | Assemble final trailer |
-| `/api/phases/storyboard-to-movie/{project_id}/status` | GET | Check generation status |
+### 1. Video Prompt Records
 
-## Files to Implement
+```python
+from app.models.video import VideoPrompt
 
-| File | Responsibility |
-|------|----------------|
-| `agents/video_prompt.py` | Generate optimized video prompts |
-| `agents/video_generation.py` | Handle video generation API calls |
-| `agents/video_assembly.py` | Combine clips with transitions |
-| `video_generator.py` | Video generation + FFmpeg assembly |
-| `service.py` | Orchestrate the full video pipeline |
-| `router.py` | API endpoints |
+video_prompt = VideoPrompt(
+    sceneId=scene.id,
+    projectId=project_id,
+    prompt="Camera slowly pans across a rain-soaked alley. Detective Harris steps forward...",
+    duration=scene.duration or 10,
+    style="cinematic, film noir, moody lighting",
+)
+db.add(video_prompt)
+```
 
-## Design Decisions
+### 2. Generated Video Records
 
-### 1. Video Generation API
+```python
+from app.models.video import GeneratedVideo
+from app.core.storage import storage_client
 
-Which API should power video generation from storyboard images?
+# After generating video from API:
+video_url = await storage_client.upload(
+    key=f"projects/{project_id}/videos/scene_{scene.sceneNumber}.mp4",
+    data=video_bytes,
+    content_type="video/mp4",
+)
 
-| API | Pros | Cons | Cost | Duration |
-|-----|------|------|------|----------|
-| **Runway Gen-3 Alpha** | Highest quality, best motion | Expensive, may have waitlist | ~$0.50-2.00/video | 5-10s |
-| **Pika Labs** | Good quality, accessible API | Newer, evolving API | ~$0.20-0.50/video | 3-5s |
-| **Kling AI** | Long-form generation, good quality | API access varies by region | ~$0.10-0.30/video | 5-10s |
-| **Luma Dream Machine** | Good motion, fast | Limited control options | ~$0.20-0.40/video | 5s |
-| **Stable Video Diffusion** (Replicate) | Cost-effective, open source | Lower quality, short clips | ~$0.02-0.10/video | 2-4s |
-| **Minimax** | Good quality, reasonable cost | Newer entrant | ~$0.10-0.25/video | 5-6s |
+generated_video = GeneratedVideo(
+    sceneId=scene.id,
+    projectId=project_id,
+    videoUrl=video_url,
+    videoKey=f"projects/{project_id}/videos/scene_{scene.sceneNumber}.mp4",
+    duration=clip_duration,
+    status="completed",
+)
+db.add(generated_video)
+```
 
-**Dependency to add** (choose one):
+### 3. Final Movie Record
+
+```python
+from app.models.final_movie import FinalMovie
+
+movie_url = await storage_client.upload(
+    key=f"projects/{project_id}/final_movie.mp4",
+    data=final_movie_bytes,
+    content_type="video/mp4",
+)
+
+final_movie = FinalMovie(
+    projectId=project_id,
+    movieUrl=movie_url,
+    movieKey=f"projects/{project_id}/final_movie.mp4",
+    duration=total_duration,
+    status="completed",
+)
+db.add(final_movie)
+```
+
+### 4. Update Project Status
+
+```python
+project.status = "completed"
+project.progress = 100
+await db.commit()
+```
+
+## Your Files (Implement in This Order)
+
+| # | File | What It Does |
+|---|------|-------------|
+| 1 | `prompts.py` | LLM prompts for generating video motion descriptions |
+| 2 | `agents/video_prompt.py` | Creates optimized video gen prompts from scene descriptions |
+| 3 | `video_generator.py` | Abstract interface for video generation API + placeholder |
+| 4 | `agents/video_generation.py` | Calls video API with storyboard image + prompt |
+| 5 | `agents/video_assembly.py` | TTS generation + video+audio combining + final assembly |
+| 6 | `service.py` | Calls agents in sequence, updates project status |
+
+## Step-by-Step Implementation Guide
+
+### Step 1: Create the Video Generator Interface
+
+In `video_generator.py`:
+
+```python
+from abc import ABC, abstractmethod
+
+
+class VideoGenerator(ABC):
+    @abstractmethod
+    async def generate(
+        self,
+        prompt: str,
+        image_url: str | None = None,
+        duration: int = 5,
+    ) -> bytes:
+        """
+        Generate a video clip.
+
+        Args:
+            prompt: Text description of the scene/motion
+            image_url: URL of the reference image (storyboard frame)
+            duration: Desired clip duration in seconds
+
+        Returns:
+            Video bytes (MP4)
+        """
+        ...
+
+
+class PlaceholderVideoGenerator(VideoGenerator):
+    async def generate(self, prompt, image_url=None, duration=5):
+        raise NotImplementedError("Connect a real video generation API here")
+```
+
+When ready, implement with your chosen API:
+- **Runway Gen-3**: Best quality, image-to-video support
+- **Kling AI**: Good quality, reasonable cost
+- **Replicate (SVD/etc.)**: Cost-effective, many models
+
+### Step 2: Implement Video Prompt Agent
+
+This agent takes scene descriptions and creates optimized prompts for video generation:
+
+```python
+from app.phases.base_agent import BaseAgent
+from pydantic import BaseModel
+
+
+class VideoPromptOutput(BaseModel):
+    motion_description: str  # camera movement + subject motion
+    style_guidance: str      # cinematic style, lighting, mood
+    duration: int            # clip duration in seconds
+
+
+class VideoPromptAgent(BaseAgent):
+    @property
+    def name(self) -> str:
+        return "video_prompt"
+
+    async def execute(self, db, project_id):
+        # 1. Load scenes
+        # 2. For each scene, ask Claude to generate a video prompt:
+        #    - Describe camera movement (pan, zoom, tracking shot)
+        #    - Describe subject motion (walking, gesturing, etc.)
+        #    - Include mood and atmosphere
+        # 3. Create VideoPrompt records
+        # 4. Return summary
+```
+
+### Step 3: Implement Video Generation Agent
+
+```python
+class VideoGenerationAgent(BaseAgent):
+    @property
+    def name(self) -> str:
+        return "video_generation"
+
+    async def execute(self, db, project_id):
+        # 1. Load scenes + their VideoPrompts + their StoryboardImages
+        # 2. For each scene:
+        #    - Get the storyboard image URL (visual reference)
+        #    - Get the video prompt text
+        #    - Call video_generator.generate(prompt=..., image_url=...)
+        #    - Upload video to S3
+        #    - Create GeneratedVideo record
+        # 3. Update project status to "generating_videos"
+```
+
+### Step 4: Implement Video Assembly Agent
+
+This is the most complex agent. It handles TTS and final assembly:
+
+```python
+class VideoAssemblyAgent(BaseAgent):
+    @property
+    def name(self) -> str:
+        return "video_assembly"
+
+    async def execute(self, db, project_id):
+        # 1. Load scenes (ordered) + their GeneratedVideo records
+        # 2. For each scene with dialogue:
+        #    - Generate TTS audio from scene.dialogue
+        #    - Combine video + audio for that scene
+        # 3. Concatenate all scene videos in order
+        # 4. Upload final movie to S3
+        # 5. Create FinalMovie record
+        # 6. Update project status to "completed", progress to 100
+```
+
+**TTS Options:**
+- **OpenAI TTS**: `pip install openai` → `client.audio.speech.create()`
+- **ElevenLabs**: `pip install elevenlabs` → high-quality voice cloning
+- **Google Cloud TTS**: `pip install google-cloud-texttospeech`
+
+**Video Assembly Options (choose one):**
+```python
+# MoviePy (easier)
+from moviepy.editor import VideoFileClip, AudioFileClip, concatenate_videoclips
+
+clip = VideoFileClip("scene_1.mp4")
+audio = AudioFileClip("scene_1_dialogue.mp3")
+clip_with_audio = clip.set_audio(audio)
+final = concatenate_videoclips([clip1, clip2, clip3])
+final.write_videofile("final_movie.mp4", codec="libx264", fps=24)
+
+# ffmpeg-python (more control)
+import ffmpeg
+(
+    ffmpeg
+    .input("scene_1.mp4")
+    .output("output.mp4", vcodec="libx264", acodec="aac")
+    .run()
+)
+```
+
+### Step 5: Wire Up service.py
+
+```python
+async def run_phase(db, project_id):
+    # 1. Run VideoPromptAgent
+    # 2. Run VideoGenerationAgent
+    # 3. Run VideoAssemblyAgent (includes TTS + assembly)
+    # 4. Update project to completed
+```
+
+## Critical Requirements
+
+1. **Image-to-video**: The storyboard image is the VISUAL REFERENCE. The scene description is the TEXT PROMPT. Both must be sent to the video generation API. The video should look like the storyboard frame but with motion.
+
+2. **TTS from Scene.dialogue**: Every scene with dialogue must have generated audio. Parse the dialogue field to extract character lines. Consider different voices for different characters.
+
+3. **Audio-video sync**: The TTS audio duration may differ from the video duration. Options:
+   - Generate video to match audio duration
+   - Speed up/slow down audio to match video
+   - Pad shorter clips with silence
+
+4. **Scene order**: Assemble scenes using `Scene.order` field. The final movie should play scenes in the correct sequence.
+
+5. **Output format**: MP4, H.264 codec, 1080p (1920x1080), 24fps. This ensures broad playback compatibility.
+
+6. **FFmpeg required**: You'll need FFmpeg installed on the system for video processing. `brew install ffmpeg` on macOS.
+
+## Testing Your Work
+
+Before testing Phase 3, you need Phase 1 and 2 data. You can either:
+- Run Phases 1 and 2 first
+- Manually insert Scene + StoryboardImage records with real image URLs
+
+```bash
+# Generate video prompts
+curl -X POST http://localhost:8000/api/phases/storyboard-to-movie/1/prompts \
+  -b "session=YOUR_TOKEN"
+
+# Generate videos
+curl -X POST http://localhost:8000/api/phases/storyboard-to-movie/1/generate \
+  -b "session=YOUR_TOKEN"
+
+# Assemble final movie
+curl -X POST http://localhost:8000/api/phases/storyboard-to-movie/1/assemble \
+  -b "session=YOUR_TOKEN"
+
+# Check status
+curl http://localhost:8000/api/phases/storyboard-to-movie/1/status \
+  -b "session=YOUR_TOKEN"
+
+# Get the final movie
+curl http://localhost:8000/api/projects/1/movie -b "session=YOUR_TOKEN"
+```
+
+## Dependencies to Add
+
+Add these to `backend/pyproject.toml` when you're ready:
+
 ```toml
-"replicate>=0.15.0",    # For Replicate-hosted models
-"httpx>=0.26.0",        # For direct API calls to any service
-"runwayml>=0.1.0",      # Official Runway SDK (if available)
-```
-
-**Questions to answer:**
-- What's your budget per trailer?
-- How important is motion quality vs. cost?
-- What clip duration do you need?
-
-### 2. Video Generation Approach
-
-How should videos be generated from storyboard images?
-
-| Approach | Description | Trade-off |
-|----------|-------------|-----------|
-| **Image-to-video** | Animate storyboard frames directly | Consistent with storyboards, limited motion |
-| **Text-to-video** | Generate from scene descriptions only | More creative motion but less visual control |
-| **Hybrid** | Image as start frame + text motion prompts | Best balance of control and motion |
-| **Multi-frame interpolation** | Generate start/end frames, interpolate between | Smooth transitions, more predictable |
-
-**Questions to answer:**
-- How closely should videos match storyboard images?
-- Is creative motion interpretation acceptable?
-
-### 3. Motion/Camera Prompting
-
-What motion elements should be included in video prompts?
-
-| Element | Options |
-|---------|---------|
-| **Camera movement** | Static, pan left/right, tilt up/down, zoom in/out, dolly, tracking |
-| **Subject motion** | Walking, running, gesturing, subtle breathing, dramatic action |
-| **Environment motion** | Wind, rain, crowd movement, lighting changes |
-| **Speed/pacing** | Slow motion, normal speed, time-lapse |
-| **Atmosphere** | Mood shifts, lighting transitions |
-
-**Questions to answer:**
-- Should motion be inferred from scene descriptions or explicitly specified?
-- How much camera movement is appropriate for trailers?
-
-### 4. Video Assembly Tool
-
-**FFmpeg is required** for combining clips. Choose a Python wrapper:
-
-| Tool | Pros | Cons |
-|------|------|------|
-| **MoviePy** | Pythonic API, easy transitions, good docs | Memory-heavy for long videos |
-| **ffmpeg-python** | Low-level control, memory efficient | Steeper learning curve |
-| **Direct FFmpeg subprocess** | Full control, most efficient | Command-line complexity |
-| **PyAV** | Fast, Pythonic FFmpeg bindings | Less documentation |
-
-```toml
-"moviepy>=1.0.3",       # Recommended for ease of use
+# Video processing (pick one)
+"moviepy>=1.0.3",        # Easier API
 # OR
-"ffmpeg-python>=0.2.0", # For more control
+"ffmpeg-python>=0.2.0",  # More control
+
+# TTS (pick one)
+"openai>=1.0.0",         # OpenAI TTS
+# OR
+"elevenlabs>=0.2.0",     # ElevenLabs
+
+# Video generation API (pick one)
+"replicate>=0.15.0",     # Replicate (many models)
+"httpx>=0.26.0",         # Direct HTTP API calls
 ```
-
-### 5. Transitions Between Clips
-
-What transitions should connect video clips?
-
-| Transition | Use Case | Duration |
-|------------|----------|----------|
-| **Hard cut** | Fast-paced action, tension | 0s |
-| **Cross-dissolve** | Scene changes, time passage | 0.5-1.5s |
-| **Fade to black** | Major section breaks, dramatic pause | 0.5-1s |
-| **Fade from black** | Opening, new section | 0.5-1s |
-| **Wipe** | Stylistic choice, retro feel | 0.3-0.5s |
-| **Motion blur** | High-energy transitions | 0.2-0.5s |
-
-**Questions to answer:**
-- Should transitions be consistent or vary by scene type?
-- What's the default transition style?
-
-### 6. Audio Integration
-
-Should the trailer include audio?
-
-| Option | Description | Complexity |
-|--------|-------------|------------|
-| **No audio** | Silent trailer, simplest approach | Low |
-| **Background music** | Add royalty-free or licensed track | Medium |
-| **AI-generated music** | Generate custom score (Suno, Udio, etc.) | Medium-High |
-| **Ambient sound** | Generate scene-appropriate sound effects | Medium |
-| **Text-to-speech** | AI narration or dialogue | Medium |
-| **Full audio mix** | Music + sound effects + dialogue | High |
-
-**Audio dependencies** (if needed):
-```toml
-"pydub>=0.25.0",        # Audio manipulation
-```
-
-**Questions to answer:**
-- Is audio in scope for v1?
-- Who provides the music (user upload vs. generated)?
-
-### 7. Video Output Specifications
-
-| Specification | Options | Recommendation |
-|---------------|---------|----------------|
-| **Resolution** | 720p, 1080p, 4K | 1080p (1920x1080) for quality/size balance |
-| **Codec** | H.264, H.265, VP9 | H.264 for broad compatibility |
-| **Format** | MP4, WebM, MOV | MP4 for universal playback |
-| **Frame rate** | 24fps, 30fps, 60fps | 24fps for cinematic feel |
-| **Bitrate** | 5-20 Mbps | 10-15 Mbps for good quality |
-| **Total duration** | 30s, 60s, 90s, 2min | Depends on scene count |
-
-### 8. Background Processing
-
-Video generation takes 1-5 minutes per clip. **Background processing is required.**
-
-| Option | Description | Trade-off |
-|--------|-------------|-----------|
-| **FastAPI BackgroundTasks** | Built-in, simple | Single-server only, no persistence |
-| **Celery + Redis** | Industry standard, distributed | Complex setup, more infrastructure |
-| **ARQ** | Async-native, simpler than Celery | Less ecosystem, still needs Redis |
-| **Dramatiq** | Good Celery alternative | Less common |
-| **RQ (Redis Queue)** | Simple Redis-based queue | Synchronous workers |
-
-```toml
-# Choose one:
-"celery>=5.3.0",        # + redis
-"arq>=0.25.0",          # Async Redis queue
-"dramatiq>=1.15.0",     # Alternative to Celery
-```
-
-**Questions to answer:**
-- Do you need distributed processing (multiple workers)?
-- Is job persistence/recovery important?
-- How will you handle long-running jobs if server restarts?
-
-### 9. Error Handling & Recovery
-
-| Scenario | Strategy |
-|----------|----------|
-| **Video generation timeout** | Retry with shorter duration, or skip scene |
-| **API rate limit** | Queue with delays, use multiple API keys |
-| **Partial clip failure** | Generate remaining clips, mark failed for retry |
-| **Assembly failure** | Keep individual clips, allow manual retry |
-| **Storage upload failure** | Local fallback, retry upload later |
-
-**Questions to answer:**
-- Should failed clips block the entire trailer?
-- How do you handle partial results?
-
-## Implementation Steps
-
-1. **Set up video generation client** in `video_generator.py`:
-   ```python
-   import replicate
-
-   async def generate_video(image_url: str, prompt: str, duration: int) -> str:
-       output = await replicate.async_run(
-           "stability-ai/stable-video-diffusion",
-           input={"image": image_url, "motion_bucket_id": 127}
-       )
-       return output  # Video URL
-   ```
-
-2. **Implement video prompt agent**:
-   - Add motion/camera movement descriptions
-   - Specify duration and pacing
-   - Include audio/atmosphere guidance
-
-3. **Implement video assembly** with moviepy:
-   ```python
-   from moviepy.editor import VideoFileClip, concatenate_videoclips
-
-   def assemble_clips(clip_paths: list[str], output_path: str):
-       clips = [VideoFileClip(p) for p in clip_paths]
-       final = concatenate_videoclips(clips, method="compose")
-       final.write_videofile(output_path, codec="libx264")
-   ```
-
-4. **Implement background task processing**:
-   - Queue video generation jobs
-   - Poll for completion
-   - Update status in database
-
-5. **Update project status**:
-   - `generating_storyboard` → `generating_videos` → `assembling` → `completed`
 
 ## Reference
 
-See original implementation: `script_to_movie/server/videoGenerator.ts`
+See `AGENT_ARCHITECTURE.md` in the project root for the overall agent design patterns.

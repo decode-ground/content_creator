@@ -4,6 +4,12 @@ from app.schemas.scene import SceneCreate, SceneResponse
 from app.schemas.character import CharacterCreate, CharacterResponse
 from app.schemas.setting import SettingCreate, SettingResponse
 from app.schemas.storyboard import StoryboardImageCreate, StoryboardImageResponse
+from app.schemas.video import (
+    VideoPromptResponse,
+    GeneratedVideoResponse,
+    FinalMovieResponse,
+    WorkflowStatusResponse,
+)
 
 __all__ = [
     "UserCreate",
@@ -22,4 +28,8 @@ __all__ = [
     "SettingResponse",
     "StoryboardImageCreate",
     "StoryboardImageResponse",
+    "VideoPromptResponse",
+    "GeneratedVideoResponse",
+    "FinalMovieResponse",
+    "WorkflowStatusResponse",
 ]

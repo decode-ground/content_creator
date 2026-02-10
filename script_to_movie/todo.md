@@ -1,204 +1,76 @@
-# Script to Movie - Development TODO
+# Script-to-Movie -- Development Status
 
-## Agentic Workflow Architecture - COMPLETED
+## Completed
 
-### Phase 1: Project Setup
-- [x] Initialize web application with database and authentication
-- [x] Design and implement database schema
+### Shared Infrastructure
+- [x] Python/FastAPI backend with async SQLAlchemy + MySQL
+- [x] Database models for all 9 tables (users, projects, scenes, characters, settings, storyboardImages, videoPrompts, generatedVideos, finalMovies)
+- [x] Pydantic schemas for all API request/response types
+- [x] Core modules: database, security (JWT + bcrypt), LLM client (Claude API), S3 storage
+- [x] Authentication endpoints (register, login, logout, me)
+- [x] Project CRUD endpoints (create, list, get, scenes, characters, settings, storyboards, movie)
+- [x] Health check endpoint
+- [x] Base agent class (`BaseAgent`) with read-process-write pattern
+- [x] Phase service contracts (method signatures with documented input/output)
+- [x] Phase API endpoint stubs (routers wired to service methods)
+- [x] Workflow orchestrator (calls phases in sequence)
+- [x] Feature branches created (one per phase)
+- [x] CLAUDE.md developer guide
+- [x] Per-phase README.md developer guides
+- [x] Per-phase PLAN.md task checklists
+- [x] .env.example with all configuration variables
+- [x] React frontend with project management UI
 
-### Phase 2: Agentic Workflow System - COMPLETED
-- [x] Create agent base class and interface definitions
-- [x] Build ScriptAnalysisAgent with multi-step reasoning
-- [x] Create PromptOptimizer for iterative prompt refinement
-- [x] Build WorkflowOrchestrator to coordinate agents
-- [x] Create tRPC workflow router for agent execution
-- [x] Document agentic architecture and integration guide
+### Frontend
+- [x] Home page with script input
+- [x] Dashboard for project management
+- [x] Project detail page
+- [x] REST API client (`api.ts`)
+- [x] React Query hooks for data fetching
 
-### Phase 3: Remaining Agents (To Be Implemented)
-- [ ] Build SceneBreakdownAgent for scene extraction
-- [ ] Build CharacterConsistencyAgent for character profile management
-- [ ] Build SettingConsistencyAgent for location management
-- [ ] Build StoryboardPromptAgent for image prompt optimization
-- [ ] Build VideoPromptAgent for video generation prompts
-- [ ] Build VideoGenerationAgent (placeholder for API integration)
-- [ ] Build VideoAssemblyAgent for final movie creation
+---
 
-### Phase 4: Frontend Integration - COMPLETED
-- [x] Create elegant home page with script input
-- [x] Build dashboard for project management
-- [x] Create simplified project detail page (script → storyboard → movie)
-- [x] Create workflow visualization component
-- [x] Build real-time progress tracking UI
-- [x] Implement three-step user workflow
+## To Be Implemented (by 3 phase developers)
 
-### Phase 5: Testing & Optimization - IN PROGRESS
-- [x] Write unit tests for Agent base class
-- [x] Write unit tests for ScriptAnalysisAgent
-- [x] Write unit tests for PromptOptimizer
-- [ ] Test agent coordination and handoffs
-- [ ] Test workflow recovery and resumption
-- [ ] End-to-end workflow testing
-- [ ] Performance optimization
+### Phase 1: Script to Trailer (Developer 1)
+- [ ] `prompts.py` -- LLM prompt strings for script parsing
+- [ ] `agents/script_analysis.py` -- Parse script into scenes with dialogue
+- [ ] `agents/character_consistency.py` -- Generate character visual descriptions
+- [ ] `agents/setting_consistency.py` -- Generate setting visual descriptions
+- [ ] `agents/trailer_generation.py` -- Generate trailer video + extract frames
+- [ ] `service.py` -- Wire agents together (replace NotImplementedError)
 
-### Phase 6: Deployment
-- [ ] Final testing and bug fixes
-- [ ] Prepare for production deployment
-- [ ] Create user documentation
+### Phase 2: Trailer to Storyboard (Developer 2)
+- [ ] `prompts.py` -- LLM prompts for frame evaluation and image prompt generation
+- [ ] `image_generator.py` -- Image generation API integration
+- [ ] `agents/storyboard_prompt.py` -- Evaluate frames, generate image prompts
+- [ ] `service.py` -- Wire agents together (replace NotImplementedError)
 
-## Core Components Implemented
+### Phase 3: Storyboard to Movie (Developer 3)
+- [ ] `prompts.py` -- LLM prompts for video motion descriptions
+- [ ] `video_generator.py` -- Video generation API integration
+- [ ] `agents/video_prompt.py` -- Create optimized video generation prompts
+- [ ] `agents/video_generation.py` -- Generate video clips per scene
+- [ ] `agents/video_assembly.py` -- TTS generation + video assembly
+- [ ] `service.py` -- Wire agents together (replace NotImplementedError)
 
-### Backend Architecture
-- [x] `Agent.ts` - Base agent class with reasoning and tool capabilities
-- [x] `ScriptAnalysisAgent.ts` - First agent in pipeline for screenplay analysis
-- [x] `PromptOptimizer.ts` - Prompt engineering and optimization system
-- [x] `WorkflowOrchestrator.ts` - Workflow execution and state management
-- [x] `types.ts` - TypeScript interfaces for agent system
-- [x] `workflow.ts` - tRPC router for workflow execution
+### After All Phases Complete
+- [ ] Alembic migration (run when database is available)
+- [ ] End-to-end pipeline testing
+- [ ] Workflow orchestration testing (run all 3 phases automatically)
+- [ ] Frontend integration with pipeline endpoints
+- [ ] Error handling and retry logic
+- [ ] Production deployment
 
-### Documentation
-- [x] `AGENT_ARCHITECTURE.md` - Complete architecture documentation
-- [x] `AGENT_INTEGRATION_GUIDE.md` - Frontend integration guide
+---
 
-## Key Features
+## Tech Stack
 
-### Agentic System
-- **Chain-of-Thought Reasoning**: Agents break down complex tasks into logical steps
-- **Prompt Optimization**: Meta-prompting for iterative prompt refinement
-- **Structured Outputs**: JSON schema validation for consistent outputs
-- **Error Recovery**: Automatic retry with prompt refinement
-- **Progress Tracking**: Real-time workflow status updates
-- **Execution Logging**: Detailed logs of agent reasoning and outputs
-
-### Workflow Management
-- **Sequential Execution**: Agents execute in coordinated sequence
-- **State Management**: Checkpoint and resume capabilities
-- **Error Handling**: Graceful error recovery with refinement
-- **Performance Monitoring**: Track agent metrics and performance
-- **Extensibility**: Easy to add new agents and workflows
-
-### Prompt Engineering
-- **Template System**: Reusable prompt templates with variables
-- **Few-Shot Examples**: Generate examples for better LLM performance
-- **Quality Scoring**: Evaluate prompt quality (0-100)
-- **Optimization**: Iterative refinement using meta-prompting
-- **Consistency**: Maintain consistency across agents
-
-## Next Steps
-
-1. **Implement Remaining Agents**
-   - SceneBreakdownAgent
-   - CharacterConsistencyAgent
-   - SettingConsistencyAgent
-   - StoryboardPromptAgent
-   - VideoPromptAgent
-   - VideoGenerationAgent
-   - VideoAssemblyAgent
-
-2. **Build Frontend Components**
-   - Workflow visualization
-   - Real-time progress tracking
-   - Agent execution logs viewer
-   - Prompt inspection panel
-   - Workflow control interface
-
-3. **Integrate with External APIs**
-   - Image generation API integration
-   - Video generation API integration
-   - Video assembly/encoding service
-
-4. **Testing & Optimization**
-   - Unit tests for each agent
-   - Integration tests for workflows
-   - Performance optimization
-   - Error recovery testing
-
-5. **Documentation & Deployment**
-   - User guide
-   - API documentation
-   - Deployment guide
-   - Troubleshooting guide
-
-## Architecture Overview
-
-```
-┌─────────────────────────────────────────┐
-│         Frontend (React/TypeScript)      │
-│  - Workflow Visualization                │
-│  - Real-time Progress Tracking           │
-│  - Agent Logs Viewer                     │
-│  - Prompt Inspection Panel               │
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│    tRPC Router (Workflow)                │
-│  - startWorkflow                         │
-│  - getWorkflowStatus                     │
-│  - getWorkflowLogs                       │
-│  - pauseWorkflow / resumeWorkflow        │
-│  - getAgentInfo                          │
-└──────────────┬──────────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────────┐
-│    WorkflowOrchestrator                  │
-│  - Manages agent execution               │
-│  - Tracks workflow state                 │
-│  - Handles error recovery                │
-│  - Coordinates handoffs                  │
-└──────────────┬──────────────────────────┘
-               │
-        ┌──────┴──────┐
-        │             │
-        ▼             ▼
-    ┌─────────┐   ┌──────────────┐
-    │  Agents │   │ PromptOptimizer
-    │  Chain  │   │  - Refines prompts
-    │         │   │  - Scores quality
-    └────┬────┘   │  - Generates examples
-         │        └──────────────┘
-         │
-    ┌────┴──────────────────────┐
-    │   LLM Integration          │
-    │  - Chain-of-thought        │
-    │  - Structured outputs      │
-    │  - Error recovery          │
-    └────────────────────────────┘
-```
-
-## Technical Stack
-
-- **Backend**: Express.js + tRPC + TypeScript
-- **Database**: MySQL with Drizzle ORM
-- **LLM Integration**: Manus built-in LLM API
-- **Image Generation**: Manus built-in image generation API
-- **File Storage**: S3 integration via Manus
-- **Frontend**: React 19 + Tailwind CSS 4
-- **Real-time Updates**: tRPC polling (can upgrade to WebSockets)
-
-## Key Metrics to Track
-
-- Agent execution time
-- Prompt optimization score
-- Output quality score
-- Error rate per agent
-- Retry count
-- Workflow completion rate
-- User satisfaction
-
-## Performance Targets
-
-- Script analysis: < 30 seconds
-- Scene breakdown: < 60 seconds
-- Character/setting consistency: < 45 seconds
-- Storyboard prompt generation: < 30 seconds
-- Video prompt generation: < 30 seconds
-- Total workflow: < 5 minutes (excluding video generation)
-
-## Notes
-
-- The agentic system is designed to be extensible - new agents can be added easily
-- Prompt optimization significantly improves output quality
-- Error recovery with prompt refinement is critical for reliability
-- Real-time feedback to users improves perceived performance
-- Agent reasoning should always be visible to users for transparency
+| Layer | Technology |
+|-------|------------|
+| Backend | Python 3.11+, FastAPI, SQLAlchemy 2.0 (async) |
+| Database | MySQL with Alembic migrations |
+| AI/LLM | Claude API (Anthropic Python SDK) |
+| Auth | JWT (python-jose) + bcrypt (passlib) |
+| Storage | AWS S3 |
+| Frontend | React 19, TypeScript, Tailwind CSS 4, React Query |

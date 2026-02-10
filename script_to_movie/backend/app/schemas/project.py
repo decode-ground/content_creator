@@ -23,6 +23,8 @@ class ProjectResponse(BaseModel):
     status: str
     progress: int
     errorMessage: str | None
+    trailerUrl: str | None = None
+    trailerKey: str | None = None
     createdAt: datetime
     updatedAt: datetime
 
