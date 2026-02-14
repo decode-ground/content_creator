@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, Text, Integer, ForeignKey, Enum, func
+from sqlalchemy import String, Text, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -15,11 +15,7 @@ class StoryboardImage(Base):
     imageUrl: Mapped[str] = mapped_column(String(512), nullable=False)
     imageKey: Mapped[str] = mapped_column(String(512), nullable=False)
     prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(
-        Enum("pending", "generating", "completed", "failed", name="storyboard_status"),
-        nullable=False,
-        default="pending",
-    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     createdAt: Mapped[datetime] = mapped_column(
         nullable=False,
         server_default=func.now(),

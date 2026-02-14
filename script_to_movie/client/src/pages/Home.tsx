@@ -68,7 +68,7 @@ export default function Home() {
                 </Button>
               </>
             ) : (
-              <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700">
+              <Button onClick={() => setLocation("/dashboard")} className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700">
                 Sign In
               </Button>
             )}
@@ -153,7 +153,7 @@ export default function Home() {
                 </Button>
               </>
             ) : (
-              <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
+              <Button onClick={() => setLocation("/dashboard")} className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
                 <Play className="mr-2 h-5 w-5" />
                 Get Started
               </Button>
@@ -234,7 +234,7 @@ export default function Home() {
               </DialogTrigger>
             </Dialog>
           ) : (
-            <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
+            <Button onClick={() => setLocation("/dashboard")} className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
               Sign In to Get Started
             </Button>
           )}

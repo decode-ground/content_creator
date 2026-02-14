@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
+import http from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
@@ -43,6 +44,36 @@ async function startServer() {
       createContext,
     })
   );
+  // Proxy /api/* requests (except /api/trpc) to FastAPI backend
+  app.use("/api", (req, res, next) => {
+    if (req.path.startsWith("/trpc") || req.path.startsWith("/oauth")) {
+      return next();
+    }
+    const options: http.RequestOptions = {
+      hostname: "localhost",
+      port: 8000,
+      path: `/api${req.path}`,
+      method: req.method,
+      headers: { ...req.headers, host: "localhost:8000" },
+    };
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+    proxyReq.on("error", () => {
+      res.status(502).json({ detail: "FastAPI backend unavailable" });
+    });
+    // express.json() consumes the raw body stream, so we must re-serialize
+    // the parsed body and write it directly instead of piping.
+    if (req.body && Object.keys(req.body).length > 0) {
+      const bodyData = JSON.stringify(req.body);
+      proxyReq.setHeader("content-length", Buffer.byteLength(bodyData).toString());
+      proxyReq.end(bodyData);
+    } else {
+      req.pipe(proxyReq, { end: true });
+    }
+  });
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

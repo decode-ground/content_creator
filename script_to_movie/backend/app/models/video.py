@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, Text, Integer, ForeignKey, Enum, func
+from sqlalchemy import String, Text, Integer, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -38,11 +38,7 @@ class GeneratedVideo(Base):
     videoUrl: Mapped[str | None] = mapped_column(String(512), nullable=True)
     videoKey: Mapped[str | None] = mapped_column(String(512), nullable=True)
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(
-        Enum("pending", "generating", "completed", "failed", name="video_status"),
-        nullable=False,
-        default="pending",
-    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     errorMessage: Mapped[str | None] = mapped_column(Text, nullable=True)
     createdAt: Mapped[datetime] = mapped_column(
         nullable=False,
