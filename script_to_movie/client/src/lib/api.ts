@@ -131,6 +131,7 @@ export interface Scene {
   description: string;
   setting: string | null;
   characters: string | null;
+  dialogue: string | null;
   duration: number | null;
   order: number;
   createdAt: string;
@@ -188,8 +189,7 @@ export interface WorkflowStatus {
   projectId: number;
   status: string;
   progress: number;
-  currentStep: string | null;
-  error: string | null;
+  errorMessage: string | null;
 }
 
 export { ApiError };

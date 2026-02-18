@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String, Text, Enum, func
+from sqlalchemy import String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -16,11 +16,7 @@ class User(Base):
     email: Mapped[str | None] = mapped_column(String(320), unique=True, nullable=True)
     passwordHash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     loginMethod: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    role: Mapped[str] = mapped_column(
-        Enum("user", "admin", name="user_role"),
-        nullable=False,
-        default="user",
-    )
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     createdAt: Mapped[datetime] = mapped_column(
         nullable=False,
         server_default=func.now(),

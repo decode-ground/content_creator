@@ -1,38 +1,29 @@
-"""Workflow service — wraps orchestrator, manages background execution."""
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+import logging
 
-from app.models.project import Project
-from app.schemas.video import WorkflowStatusResponse
+from app.core.database import AsyncSessionLocal
+from app.phases.script_to_trailer.service import run_phase1
 
-
-async def start_workflow(db: AsyncSession, project_id: int, workflow_type: str) -> dict:
-    """Start the pipeline. Returns {"success": True}."""
-    raise NotImplementedError("Workflow start not yet implemented")
+logger = logging.getLogger(__name__)
 
 
-async def get_workflow_status(db: AsyncSession, project_id: int) -> WorkflowStatusResponse:
-    """Return current workflow status for a project."""
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
-        return WorkflowStatusResponse(
-            projectId=project_id,
-            status="not_found",
-            progress=0,
-            error="Project not found",
-        )
-    return WorkflowStatusResponse(
-        projectId=project.id,
-        status=project.status,
-        progress=project.progress,
-        error=project.errorMessage,
-    )
+async def start_workflow(project_id: int, workflow_type: str) -> None:
+    """Background task that runs the full pipeline.
 
+    Uses its own DB session since it runs detached from the request lifecycle.
+    """
+    logger.info(f"Workflow '{workflow_type}' starting for project {project_id}")
 
-async def pause_workflow(db: AsyncSession, project_id: int) -> None:
-    raise NotImplementedError("Workflow pause not yet implemented")
+    async with AsyncSessionLocal() as db:
+        try:
+            if workflow_type == "full_pipeline":
+                # Phase 1: Script to Trailer
+                await run_phase1(db, project_id)
 
+                # Phase 2 & 3 will be added by other developers
+                logger.info(f"Workflow complete for project {project_id}")
+            else:
+                raise ValueError(f"Unknown workflow type: {workflow_type}")
 
-async def resume_workflow(db: AsyncSession, project_id: int) -> None:
-    raise NotImplementedError("Workflow resume not yet implemented")
+        except Exception as e:
+            logger.error(f"Workflow failed for project {project_id}: {e}")
+            # Error status is already set by run_phase1's error handler

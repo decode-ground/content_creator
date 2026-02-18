@@ -80,16 +80,8 @@ export default function Dashboard() {
     }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-white mb-4">Please sign in to access your projects</p>
-          <Button className="bg-gradient-to-r from-purple-600 to-pink-600">Sign In</Button>
-        </div>
-      </div>
-    );
-  }
+  // TODO: re-enable auth guard once backend auth is implemented
+  // if (!isAuthenticated) { ... }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
@@ -98,7 +90,13 @@ export default function Dashboard() {
         <div className="container mx-auto px-4 py-6">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-3xl font-bold text-white mb-1">Projects</h1>
+              <div className="flex items-center gap-3 mb-1">
+                <button onClick={() => setLocation("/")} className="text-slate-400 hover:text-white transition-colors text-sm">
+                  Home
+                </button>
+                <span className="text-slate-600">/</span>
+                <h1 className="text-3xl font-bold text-white">Projects</h1>
+              </div>
               <p className="text-slate-400">Welcome back, {user?.name}</p>
             </div>
             <Dialog open={isOpen} onOpenChange={setIsOpen}>

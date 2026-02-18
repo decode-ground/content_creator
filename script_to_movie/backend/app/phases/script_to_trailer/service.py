@@ -1,68 +1,47 @@
-"""
-Phase 1: Script to Trailer
-===========================
+import logging
 
-Orchestrates the agents that transform a raw script/plot into a structured
-screenplay with visual descriptions and a trailer video.
-
-INPUT (what exists in DB before this phase runs):
-    - Project.scriptContent — raw script/plot text from user
-    - Project.title — movie title
-
-OUTPUT (what this phase creates in DB):
-    - Scene records with: sceneNumber, title, description, dialogue,
-      setting, characters (JSON), duration, order
-    - Character records with: name, description, visualDescription
-    - Setting records with: name, description, visualDescription
-    - Project.trailerUrl / Project.trailerKey — generated trailer video
-    - StoryboardImage records — one per scene, frames extracted from trailer
-      (imageUrl, imageKey, sceneId, projectId)
-
-STATUS UPDATES:
-    - Project.status: "draft" → "parsing" → "parsed"
-    - Project.progress: 0 → 33
-
-CRITICAL REQUIREMENTS:
-    - EVERY scene must include dialogue if there are spoken parts (feeds TTS in Phase 3)
-    - Character visualDescriptions must be detailed and consistent across all scenes
-    - EVERY scene must get exactly one StoryboardImage (Phase 3 needs it for video generation)
-    - Trailer video is generated via text-to-video API using scene descriptions
-
-The workflow orchestrator calls: await run_phase(db, project_id)
-"""
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.models.project import Project
+from app.phases.script_to_trailer.agents.script_analysis import analyze_script
+from app.phases.script_to_trailer.agents.character_consistency import extract_characters
+from app.phases.script_to_trailer.agents.setting_consistency import extract_settings
+from app.phases.script_to_trailer.agents.trailer_selection import select_trailer_scenes
+
+logger = logging.getLogger(__name__)
 
 
-async def run_phase(db: AsyncSession, project_id: int) -> dict:
-    """
-    Execute all Phase 1 agents in sequence.
+async def run_phase1(db: AsyncSession, project_id: int) -> None:
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise ValueError(f"Project {project_id} not found")
 
-    1. ScriptAnalysisAgent — parse script into scenes with dialogue
-    2. CharacterConsistencyAgent — generate character visual descriptions
-    3. SettingConsistencyAgent — generate setting visual descriptions
-    4. TrailerGenerationAgent — generate trailer video, extract one frame per scene
+    try:
+        logger.info(f"Phase 1 starting for project {project_id}")
 
-    If any agent fails, update project.status = "failed" and
-    project.errorMessage with the error detail.
-    """
-    raise NotImplementedError("Phase 1 service not yet implemented")
+        # Step 1: Analyze script → extract scenes
+        await analyze_script(db, project)
 
+        # Step 2: Extract characters with visual descriptions
+        await extract_characters(db, project)
 
-async def run_script_analysis(db: AsyncSession, project_id: int) -> dict:
-    """Parse script into scenes with dialogue. Creates Scene records."""
-    raise NotImplementedError("Phase 1: script analysis not yet implemented")
+        # Step 3: Extract settings with visual descriptions
+        await extract_settings(db, project)
 
+        # Step 4: Select trailer scenes
+        await select_trailer_scenes(db, project)
 
-async def run_character_consistency(db: AsyncSession, project_id: int) -> dict:
-    """Generate consistent character visual descriptions. Creates Character records."""
-    raise NotImplementedError("Phase 1: character consistency not yet implemented")
+        project.status = "phase1_complete"
+        project.progress = 100
+        await db.commit()
 
+        logger.info(f"Phase 1 complete for project {project_id}")
 
-async def run_setting_consistency(db: AsyncSession, project_id: int) -> dict:
-    """Generate consistent setting visual descriptions. Creates Setting records."""
-    raise NotImplementedError("Phase 1: setting consistency not yet implemented")
-
-
-async def run_trailer_generation(db: AsyncSession, project_id: int) -> dict:
-    """Generate trailer video and extract one frame per scene. Creates StoryboardImage records."""
-    raise NotImplementedError("Phase 1: trailer generation not yet implemented")
+    except Exception as e:
+        logger.error(f"Phase 1 failed for project {project_id}: {e}")
+        project.status = "failed"
+        project.errorMessage = str(e)
+        await db.commit()
+        raise

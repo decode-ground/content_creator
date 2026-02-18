@@ -1,59 +1,76 @@
-import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
-from fastapi import HTTPException, status
+from jose import JWTError, jwt
+from passlib.hash import bcrypt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import get_password_hash, verify_password, create_access_token
+from app.config import get_settings
 from app.models.user import User
+from app.schemas.user import UserCreate, UserLogin
+
+settings = get_settings()
 
 
-async def register_user(
-    db: AsyncSession, email: str, password: str, name: str
-) -> tuple[User, str]:
-    result = await db.execute(select(User).where(User.email == email))
-    if result.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
-        )
+def hash_password(password: str) -> str:
+    return bcrypt.hash(password)
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return bcrypt.verify(password, password_hash)
+
+
+def create_jwt_token(user_id: int, open_id: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.jwt_expiration_days)
+    payload = {"sub": str(user_id), "openId": open_id, "exp": expire}
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def decode_jwt_token(token: str) -> dict | None:
+    try:
+        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except JWTError:
+        return None
+
+
+async def register_user(db: AsyncSession, data: UserCreate) -> User:
+    existing = await db.execute(select(User).where(User.email == data.email))
+    if existing.scalar_one_or_none():
+        raise ValueError("Email already registered")
 
     user = User(
-        openId=str(uuid.uuid4()),
-        email=email,
-        name=name,
-        passwordHash=get_password_hash(password),
+        openId=str(uuid4()),
+        email=data.email,
+        name=data.name,
+        passwordHash=hash_password(data.password),
         loginMethod="email",
         role="user",
     )
     db.add(user)
     await db.commit()
     await db.refresh(user)
-
-    token = create_access_token({"sub": str(user.id)})
-    return user, token
+    return user
 
 
-async def login_user(
-    db: AsyncSession, email: str, password: str
-) -> tuple[User, str]:
-    result = await db.execute(select(User).where(User.email == email))
+async def login_user(db: AsyncSession, data: UserLogin) -> User:
+    result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
-
-    if not user or not user.passwordHash or not verify_password(password, user.passwordHash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
-        )
+    if not user or not user.passwordHash or not verify_password(data.password, user.passwordHash):
+        raise ValueError("Invalid email or password")
 
     user.lastSignedIn = datetime.now(timezone.utc)
     await db.commit()
+    await db.refresh(user)
+    return user
 
-    token = create_access_token({"sub": str(user.id)})
-    return user, token
 
-
-async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
-    result = await db.execute(select(User).where(User.id == user_id))
+async def get_current_user(db: AsyncSession, token: str) -> User | None:
+    payload = decode_jwt_token(token)
+    if not payload:
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    result = await db.execute(select(User).where(User.id == int(user_id)))
     return result.scalar_one_or_none()

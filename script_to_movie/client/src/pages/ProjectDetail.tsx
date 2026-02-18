@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { projectsApi, workflowApi } from "@/lib/api";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Play, Images, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Images, Loader2, FileText } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -25,6 +25,24 @@ export default function ProjectDetail() {
     enabled: projectId > 0,
   });
 
+  const scenesQuery = useQuery({
+    queryKey: ["scenes", projectId],
+    queryFn: () => projectsApi.getScenes(projectId),
+    enabled: projectId > 0,
+  });
+
+  const charactersQuery = useQuery({
+    queryKey: ["characters", projectId],
+    queryFn: () => projectsApi.getCharacters(projectId),
+    enabled: projectId > 0,
+  });
+
+  const settingsQuery = useQuery({
+    queryKey: ["settings", projectId],
+    queryFn: () => projectsApi.getSettings(projectId),
+    enabled: projectId > 0,
+  });
+
   const storyboardsQuery = useQuery({
     queryKey: ["storyboards", projectId],
     queryFn: () => projectsApi.getStoryboards(projectId),
@@ -34,6 +52,12 @@ export default function ProjectDetail() {
   const finalMovieQuery = useQuery({
     queryKey: ["finalMovie", projectId],
     queryFn: () => projectsApi.getFinalMovie(projectId),
+    enabled: projectId > 0,
+  });
+
+  const workflowStatusQuery = useQuery({
+    queryKey: ["workflowStatus", projectId],
+    queryFn: () => workflowApi.getStatus(projectId),
     enabled: projectId > 0,
   });
 
@@ -49,22 +73,35 @@ export default function ProjectDetail() {
     }
   }, [projectQuery.data]);
 
-  // Auto-refresh storyboards and movie when processing
+  // Poll for updates when processing
   useEffect(() => {
     if (!isProcessing) return;
 
     const interval = setInterval(() => {
+      workflowStatusQuery.refetch();
+      scenesQuery.refetch();
+      charactersQuery.refetch();
+      settingsQuery.refetch();
       storyboardsQuery.refetch();
       finalMovieQuery.refetch();
 
-      // Check if processing is complete
-      if (storyboardsQuery.data?.length || finalMovieQuery.data?.movieUrl) {
+      const status = workflowStatusQuery.data?.status;
+      if (
+        status === "phase1_complete" ||
+        status === "completed" ||
+        status === "failed"
+      ) {
         setIsProcessing(false);
+        if (status === "failed") {
+          toast.error(
+            `Processing failed: ${workflowStatusQuery.data?.errorMessage || "Unknown error"}`
+          );
+        }
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isProcessing, storyboardsQuery, finalMovieQuery]);
+  }, [isProcessing, workflowStatusQuery.data?.status]);
 
   const handleGenerateMovie = async () => {
     try {
@@ -74,7 +111,7 @@ export default function ProjectDetail() {
         workflowType: "full_pipeline",
       });
       toast.success("Processing started! This may take a few minutes...");
-      setActiveTab("storyboard");
+      setActiveTab("analysis");
     } catch (error) {
       setIsProcessing(false);
       toast.error("Failed to start processing");
@@ -107,6 +144,9 @@ export default function ProjectDetail() {
 
   const hasStoryboards = storyboardsQuery.data && storyboardsQuery.data.length > 0;
   const hasMovie = finalMovieQuery.data?.movieUrl;
+  const hasScenes = scenesQuery.data && scenesQuery.data.length > 0;
+  const hasCharacters = charactersQuery.data && charactersQuery.data.length > 0;
+  const hasSettings = settingsQuery.data && settingsQuery.data.length > 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
@@ -128,6 +168,10 @@ export default function ProjectDetail() {
           <TabsList className="bg-slate-800 border-slate-700 w-full justify-start">
             <TabsTrigger value="input" className="text-slate-400 data-[state=active]:text-white">
               Script
+            </TabsTrigger>
+            <TabsTrigger value="analysis" className="text-slate-400 data-[state=active]:text-white">
+              <FileText className="mr-2 h-4 w-4" />
+              Analysis
             </TabsTrigger>
             <TabsTrigger value="storyboard" className="text-slate-400 data-[state=active]:text-white">
               <Images className="mr-2 h-4 w-4" />
@@ -175,6 +219,102 @@ export default function ProjectDetail() {
             </Card>
           </TabsContent>
 
+          {/* Analysis Tab — Phase 1 Results */}
+          <TabsContent value="analysis" className="space-y-6">
+            {isProcessing && !hasScenes && (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <Loader2 className="w-8 h-8 text-purple-500 animate-spin mx-auto mb-4" />
+                  <p className="text-slate-300 mb-2">Analyzing script...</p>
+                  <p className="text-sm text-slate-500">Extracting scenes, characters, and settings</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {hasScenes && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-white">
+                  Scenes ({scenesQuery.data?.length})
+                </h2>
+                <div className="space-y-3">
+                  {scenesQuery.data?.map((scene) => (
+                    <Card key={scene.id} className="border-slate-700 bg-slate-800/50">
+                      <CardContent className="pt-4 pb-4">
+                        <div className="flex items-start gap-3">
+                          <span className="text-slate-500 text-sm font-mono w-8 shrink-0">
+                            {scene.sceneNumber}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white font-medium">{scene.title}</p>
+                            <p className="text-slate-400 text-sm mt-1">{scene.description}</p>
+                            {scene.setting && (
+                              <p className="text-slate-500 text-xs mt-1">Setting: {scene.setting}</p>
+                            )}
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hasCharacters && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-white">
+                  Characters ({charactersQuery.data?.length})
+                </h2>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {charactersQuery.data?.map((character) => (
+                    <Card key={character.id} className="border-slate-700 bg-slate-800/50">
+                      <CardContent className="pt-4 pb-4">
+                        <p className="text-white font-medium">{character.name}</p>
+                        <p className="text-slate-400 text-sm mt-1">{character.description}</p>
+                        {character.visualDescription && (
+                          <p className="text-slate-500 text-xs mt-2 italic">
+                            {character.visualDescription}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hasSettings && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold text-white">
+                  Settings ({settingsQuery.data?.length})
+                </h2>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {settingsQuery.data?.map((setting) => (
+                    <Card key={setting.id} className="border-slate-700 bg-slate-800/50">
+                      <CardContent className="pt-4 pb-4">
+                        <p className="text-white font-medium">{setting.name}</p>
+                        <p className="text-slate-400 text-sm mt-1">{setting.description}</p>
+                        {setting.visualDescription && (
+                          <p className="text-slate-500 text-xs mt-2 italic">
+                            {setting.visualDescription}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!isProcessing && !hasScenes && (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <FileText className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400">Generate a movie to see script analysis results</p>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
           {/* Storyboard Tab */}
           <TabsContent value="storyboard" className="space-y-6">
             {isProcessing && !hasStoryboards && (
@@ -209,14 +349,14 @@ export default function ProjectDetail() {
                   ))}
                 </div>
               </div>
-            ) : (
+            ) : !isProcessing ? (
               <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
                 <CardContent className="py-12 text-center">
                   <Images className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                  <p className="text-slate-400">Generate a movie to see the storyboard</p>
+                  <p className="text-slate-400">Storyboard images will appear here after Phase 2</p>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
           </TabsContent>
 
           {/* Movie Tab */}
@@ -270,14 +410,14 @@ export default function ProjectDetail() {
                   </div>
                 </CardContent>
               </Card>
-            ) : (
+            ) : !isProcessing ? (
               <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
                 <CardContent className="py-12 text-center">
                   <Play className="w-12 h-12 text-slate-600 mx-auto mb-4" />
                   <p className="text-slate-400">Generate a movie to watch it here</p>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
           </TabsContent>
         </Tabs>
       </div>
