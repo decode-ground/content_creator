@@ -1,6 +1,7 @@
 import "dotenv/config";
 import express from "express";
-import { createServer, request as httpRequest } from "http";
+import { createServer } from "http";
+import http from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
@@ -43,9 +44,11 @@ async function startServer() {
       createContext,
     })
   );
-  // Proxy /api/* requests (except /api/trpc) to FastAPI backend on port 8000
+  // Proxy /api/* requests (except /api/trpc and /api/oauth) to FastAPI backend on port 8000
   app.use("/api", (req, res, next) => {
-    if (req.path.startsWith("/trpc")) return next();
+    if (req.path.startsWith("/trpc") || req.path.startsWith("/oauth")) {
+      return next();
+    }
     // Re-serialize body since express.json() already consumed the stream
     const bodyData = req.body && Object.keys(req.body).length > 0
       ? JSON.stringify(req.body)
@@ -58,14 +61,14 @@ async function startServer() {
       headers["content-length"] = Buffer.byteLength(bodyData).toString();
       headers["content-type"] = "application/json";
     }
-    const options = {
+    const options: http.RequestOptions = {
       hostname: "localhost",
       port: 8000,
       path: `/api${req.path}`,
       method: req.method,
       headers,
     };
-    const proxyReq = httpRequest(options, (proxyRes) => {
+    const proxyReq = http.request(options, (proxyRes) => {
       res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
       proxyRes.pipe(res, { end: true });
     });
@@ -73,10 +76,12 @@ async function startServer() {
       res.status(502).json({ error: "Backend unavailable" });
     });
     if (bodyData) {
-      proxyReq.write(bodyData);
+      proxyReq.end(bodyData);
+    } else {
+      req.pipe(proxyReq, { end: true });
     }
-    proxyReq.end();
   });
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

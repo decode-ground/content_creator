@@ -55,6 +55,12 @@ export default function ProjectDetail() {
     enabled: projectId > 0,
   });
 
+  const workflowStatusQuery = useQuery({
+    queryKey: ["workflowStatus", projectId],
+    queryFn: () => workflowApi.getStatus(projectId),
+    enabled: projectId > 0,
+  });
+
   const startWorkflowMutation = useMutation({
     mutationFn: ({ projectId, workflowType }: { projectId: number; workflowType: string }) =>
       workflowApi.start(projectId, workflowType),
@@ -67,33 +73,54 @@ export default function ProjectDetail() {
     }
   }, [projectQuery.data]);
 
-  // Auto-refresh when processing
+  // Auto-refresh when processing — poll both project and workflow status
   useEffect(() => {
     if (!isProcessing) return;
 
     const interval = setInterval(() => {
       projectQuery.refetch();
+      workflowStatusQuery.refetch();
       scenesQuery.refetch();
       charactersQuery.refetch();
       settingsQuery.refetch();
       storyboardsQuery.refetch();
       finalMovieQuery.refetch();
 
-      // Check if processing is complete
-      const status = projectQuery.data?.status;
-      if (status === "completed" || status === "parsed" || status === "failed") {
+      // Check if processing is complete via project status or workflow status
+      const projectStatus = projectQuery.data?.status;
+      const workflowStatus = workflowStatusQuery.data?.status;
+      if (
+        projectStatus === "completed" ||
+        projectStatus === "parsed" ||
+        projectStatus === "phase1_complete" ||
+        workflowStatus === "phase1_complete" ||
+        workflowStatus === "completed" ||
+        projectStatus === "failed" ||
+        workflowStatus === "failed"
+      ) {
         setIsProcessing(false);
-        if (status === "completed" || status === "parsed") {
+        if (
+          projectStatus === "completed" ||
+          projectStatus === "parsed" ||
+          projectStatus === "phase1_complete" ||
+          workflowStatus === "phase1_complete" ||
+          workflowStatus === "completed"
+        ) {
           toast.success("Processing complete!");
           setActiveTab("scenes");
-        } else if (status === "failed") {
-          toast.error("Processing failed: " + (projectQuery.data?.errorMessage || "Unknown error"));
+        } else if (projectStatus === "failed" || workflowStatus === "failed") {
+          toast.error(
+            "Processing failed: " +
+              (projectQuery.data?.errorMessage ||
+                workflowStatusQuery.data?.errorMessage ||
+                "Unknown error")
+          );
         }
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isProcessing, projectQuery, scenesQuery, charactersQuery, settingsQuery, storyboardsQuery, finalMovieQuery]);
+  }, [isProcessing, projectQuery.data?.status, workflowStatusQuery.data?.status]);
 
   const handleGenerateMovie = async () => {
     try {
@@ -145,6 +172,7 @@ export default function ProjectDetail() {
     draft: "bg-slate-600",
     parsing: "bg-yellow-600",
     parsed: "bg-green-600",
+    phase1_complete: "bg-green-600",
     generating_videos: "bg-blue-600",
     completed: "bg-emerald-600",
     failed: "bg-red-600",
@@ -261,7 +289,7 @@ export default function ProjectDetail() {
                           Scene {scene.sceneNumber}: {scene.title}
                         </CardTitle>
                         <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded">
-                          {scene.duration || "—"}s
+                          {scene.duration || "\u2014"}s
                         </span>
                       </div>
                       {scene.setting && (
@@ -406,14 +434,14 @@ export default function ProjectDetail() {
                   ))}
                 </div>
               </div>
-            ) : (
+            ) : !isProcessing ? (
               <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
                 <CardContent className="py-12 text-center">
                   <Images className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                  <p className="text-slate-400">Storyboard will be generated in a later phase</p>
+                  <p className="text-slate-400">Storyboard images will appear here after Phase 2</p>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
           </TabsContent>
 
           {/* Movie Tab */}
@@ -467,14 +495,14 @@ export default function ProjectDetail() {
                   </div>
                 </CardContent>
               </Card>
-            ) : (
+            ) : !isProcessing ? (
               <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
                 <CardContent className="py-12 text-center">
                   <Play className="w-12 h-12 text-slate-600 mx-auto mb-4" />
                   <p className="text-slate-400">Movie will be assembled in the final phase</p>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
           </TabsContent>
         </Tabs>
       </div>

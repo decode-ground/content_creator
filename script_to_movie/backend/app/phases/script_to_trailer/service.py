@@ -1,7 +1,4 @@
 """
-Phase 1: Script to Trailer
-===========================
-
 Orchestrates the agents that transform a raw script/plot into a structured
 screenplay with visual descriptions and a trailer video.
 
@@ -45,23 +42,52 @@ from app.phases.script_to_trailer.prompts import (
     SCRIPT_ANALYSIS_SYSTEM_PROMPT,
     ScriptAnalysisOutput,
 )
+from app.phases.script_to_trailer.agents.script_analysis import analyze_script as agent_analyze_script
+from app.phases.script_to_trailer.agents.character_consistency import extract_characters
+from app.phases.script_to_trailer.agents.setting_consistency import extract_settings
+from app.phases.script_to_trailer.agents.trailer_selection import select_trailer_scenes
 
 logger = logging.getLogger(__name__)
 
 
-async def run_phase(db: AsyncSession, project_id: int) -> dict:
-    """
-    Execute all Phase 1 agents in sequence.
+async def run_phase1(db: AsyncSession, project_id: int) -> None:
+    """Run the full Phase 1 pipeline using sub-agents.
 
-    1. ScriptAnalysisAgent — parse script into scenes with dialogue
-    2. CharacterConsistencyAgent — generate character visual descriptions
-    3. SettingConsistencyAgent — generate setting visual descriptions
-    4. TrailerGenerationAgent — generate trailer video, extract one frame per scene
-
-    If any agent fails, update project.status = "failed" and
-    project.errorMessage with the error detail.
+    This is the orchestrator called by the workflow service. It delegates
+    to individual agents for each step.
     """
-    raise NotImplementedError("Phase 1 service not yet implemented")
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise ValueError(f"Project {project_id} not found")
+
+    try:
+        logger.info(f"Phase 1 starting for project {project_id}")
+
+        # Step 1: Analyze script → extract scenes
+        await agent_analyze_script(db, project)
+
+        # Step 2: Extract characters with visual descriptions
+        await extract_characters(db, project)
+
+        # Step 3: Extract settings with visual descriptions
+        await extract_settings(db, project)
+
+        # Step 4: Select trailer scenes
+        await select_trailer_scenes(db, project)
+
+        project.status = "phase1_complete"
+        project.progress = 100
+        await db.commit()
+
+        logger.info(f"Phase 1 complete for project {project_id}")
+
+    except Exception as e:
+        logger.error(f"Phase 1 failed for project {project_id}: {e}")
+        project.status = "failed"
+        project.errorMessage = str(e)
+        await db.commit()
+        raise
 
 
 async def analyze_script(db: AsyncSession, project_id: int) -> dict:
@@ -166,18 +192,3 @@ async def analyze_script(db: AsyncSession, project_id: int) -> dict:
         project.errorMessage = str(e)
         await db.commit()
         raise
-
-
-async def run_character_consistency(db: AsyncSession, project_id: int) -> dict:
-    """Generate consistent character visual descriptions. Creates Character records."""
-    raise NotImplementedError("Phase 1: character consistency not yet implemented")
-
-
-async def run_setting_consistency(db: AsyncSession, project_id: int) -> dict:
-    """Generate consistent setting visual descriptions. Creates Setting records."""
-    raise NotImplementedError("Phase 1: setting consistency not yet implemented")
-
-
-async def run_trailer_generation(db: AsyncSession, project_id: int) -> dict:
-    """Generate trailer video and extract one frame per scene. Creates StoryboardImage records."""
-    raise NotImplementedError("Phase 1: trailer generation not yet implemented")

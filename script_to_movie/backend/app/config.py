@@ -4,7 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "mysql+aiomysql://root:password@localhost:3306/script_to_movie"
+    database_url: str = "sqlite+aiosqlite:///./data.db"
 
     # JWT
     jwt_secret: str = "your-secret-key-change-in-production"

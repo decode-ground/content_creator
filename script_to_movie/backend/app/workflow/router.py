@@ -1,14 +1,13 @@
-from typing import Annotated
+import asyncio
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.database import get_db
-from app.core.dependencies import get_current_user
-from app.models.user import User
-from app.schemas.video import WorkflowStatusResponse
-from app.workflow import service
+from app.models.project import Project
+from app.workflow.service import start_workflow
 
 router = APIRouter(prefix="/api/workflow", tags=["workflow"])
 
@@ -18,43 +17,45 @@ class StartWorkflowRequest(BaseModel):
 
 
 @router.post("/{project_id}/start")
-async def start_workflow(
+async def start_workflow_endpoint(
     project_id: int,
     body: StartWorkflowRequest,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
-) -> dict:
-    """Start the full pipeline for a project."""
-    return await service.start_workflow(db, project_id, body.workflowType)
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if project.status not in ("draft", "failed"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot start workflow: project status is '{project.status}'",
+        )
+
+    project.status = "starting"
+    project.progress = 0
+    project.errorMessage = None
+    await db.commit()
+
+    asyncio.create_task(start_workflow(project_id, body.workflowType))
+
+    return {"success": True, "message": "Workflow started"}
 
 
 @router.get("/{project_id}/status")
-async def get_status(
+async def get_workflow_status(
     project_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
-) -> WorkflowStatusResponse:
-    """Get current workflow status and progress."""
-    return await service.get_workflow_status(db, project_id)
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Project).where(Project.id == project_id))
+    project = result.scalar_one_or_none()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
 
-
-@router.post("/{project_id}/pause")
-async def pause(
-    project_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
-) -> dict:
-    """Pause workflow execution."""
-    await service.pause_workflow(db, project_id)
-    return {"message": "Workflow paused"}
-
-
-@router.post("/{project_id}/resume")
-async def resume(
-    project_id: int,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    user: Annotated[User, Depends(get_current_user)],
-) -> dict:
-    """Resume paused workflow."""
-    await service.resume_workflow(db, project_id)
-    return {"message": "Workflow resumed"}
+    return {
+        "projectId": project.id,
+        "status": project.status,
+        "progress": project.progress,
+        "errorMessage": project.errorMessage,
+    }
