@@ -1,14 +1,36 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.phases.storyboard_to_movie.service import generate_trailer
 from app.phases.storyboard_to_movie import service
 
 router = APIRouter(prefix="/api/phases/storyboard-to-movie", tags=["storyboard-to-movie"])
+
+
+@router.post("/{project_id}/generate-trailer")
+async def generate_project_trailer(
+    project_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    user: Annotated[User, Depends(get_current_user)],
+):
+    """Generate a video trailer from a parsed script.
+
+    The project must already have been parsed (scenes, characters, settings exist).
+    This endpoint generates optimized video prompts for each scene, creates video
+    clips, and assembles them into a final trailer.
+    """
+    try:
+        result = await generate_trailer(db, project_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Trailer generation failed: {str(e)}")
 
 
 @router.post("/{project_id}/prompts")

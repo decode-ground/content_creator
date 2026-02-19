@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
 
+    # Kling AI
+    kling_api_key: str = ""
+    kling_secret_key: str = ""
+
     # AWS S3
     aws_access_key_id: str = ""
     aws_secret_access_key: str = ""
