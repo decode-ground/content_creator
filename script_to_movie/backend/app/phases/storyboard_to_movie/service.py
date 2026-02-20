@@ -41,6 +41,9 @@ from app.models.character import Character
 from app.models.setting import Setting
 from app.models.video import VideoPrompt, GeneratedVideo
 from app.models.final_movie import FinalMovie
+from app.phases.storyboard_to_movie.agents.video_assembly import VideoAssemblyAgent
+from app.phases.storyboard_to_movie.agents.video_generation import VideoGenerationAgent
+from app.phases.storyboard_to_movie.agents.video_prompt import VideoPromptAgent
 from app.phases.storyboard_to_movie.prompts import (
     VIDEO_PROMPT_SYSTEM_PROMPT,
     VideoPromptOutput,
@@ -54,19 +57,23 @@ logger = logging.getLogger(__name__)
 
 
 async def run_phase(db: AsyncSession, project_id: int) -> dict:
-    """
-    Execute Phase 3.
+    """Execute all Phase 3 steps in sequence."""
+    results: dict = {}
 
-    1. Load scenes + storyboard images
-    2. For each scene: generate video prompt from scene description
-    3. For each scene: call video API with storyboard image + prompt
-    4. For each scene: generate TTS audio from dialogue
-    5. Combine video + audio per scene
-    6. Assemble all scenes into final movie
-    7. Upload to S3, create FinalMovie record
-    8. Update project status to "completed", progress to 100
-    """
-    raise NotImplementedError("Phase 3 service not yet implemented")
+    r = await run_video_prompts(db, project_id)
+    results["prompts"] = r
+    if r.get("status") == "error":
+        return {"status": "error", "phase": "prompts", "message": r.get("message"), "results": results}
+
+    r = await run_video_generation(db, project_id)
+    results["generation"] = r
+    if r.get("status") == "error":
+        return {"status": "error", "phase": "generation", "message": r.get("message"), "results": results}
+
+    r = await run_video_assembly(db, project_id)
+    results["assembly"] = r
+
+    return {"status": r.get("status", "unknown"), "results": results}
 
 
 async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
@@ -244,24 +251,67 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
 
 async def run_video_prompts(db: AsyncSession, project_id: int) -> dict:
     """Generate optimized video prompts from scene descriptions. Creates VideoPrompt records."""
-    raise NotImplementedError("Phase 3: video prompts not yet implemented")
+    return await VideoPromptAgent().safe_execute(db, project_id)
 
 
 async def run_video_generation(db: AsyncSession, project_id: int) -> dict:
     """Generate video clips using storyboard images as references. Creates GeneratedVideo records."""
-    raise NotImplementedError("Phase 3: video generation not yet implemented")
+    return await VideoGenerationAgent().safe_execute(db, project_id)
 
 
 async def run_tts_generation(db: AsyncSession, project_id: int) -> dict:
-    """Generate TTS audio from Scene.dialogue for each scene."""
-    raise NotImplementedError("Phase 3: TTS generation not yet implemented")
+    """TTS is handled inside VideoAssemblyAgent. This stub kept for API compatibility."""
+    return {"status": "success", "message": "TTS is handled during /assemble step"}
 
 
 async def run_video_assembly(db: AsyncSession, project_id: int) -> dict:
     """Combine video + audio per scene, then assemble final movie. Creates FinalMovie record."""
-    raise NotImplementedError("Phase 3: video assembly not yet implemented")
+    return await VideoAssemblyAgent().safe_execute(db, project_id)
 
 
 async def get_generation_status(db: AsyncSession, project_id: int) -> dict:
     """Return current generation status for the project."""
-    raise NotImplementedError("Phase 3: status check not yet implemented")
+    from app.models.storyboard import StoryboardImage
+    from app.models.video import VideoPrompt, GeneratedVideo
+    from app.models.final_movie import FinalMovie
+
+    project_result = await db.execute(select(Project).where(Project.id == project_id))
+    project = project_result.scalar_one_or_none()
+    if not project:
+        return {"status": "error", "message": f"Project {project_id} not found"}
+
+    total_scenes = (
+        await db.execute(
+            select(Scene).where(Scene.projectId == project_id)
+        )
+    )
+    total_scenes_count = len(total_scenes.scalars().all())
+
+    prompts_result = await db.execute(
+        select(VideoPrompt).where(VideoPrompt.projectId == project_id)
+    )
+    prompts_count = len(prompts_result.scalars().all())
+
+    videos_result = await db.execute(
+        select(GeneratedVideo).where(
+            GeneratedVideo.projectId == project_id,
+            GeneratedVideo.status == "completed",
+        )
+    )
+    videos_count = len(videos_result.scalars().all())
+
+    movie_result = await db.execute(
+        select(FinalMovie).where(FinalMovie.projectId == project_id)
+    )
+    movie = movie_result.scalar_one_or_none()
+
+    return {
+        "project_id": project_id,
+        "project_status": project.status,
+        "project_progress": project.progress,
+        "total_scenes": total_scenes_count,
+        "prompts_generated": prompts_count,
+        "videos_generated": videos_count,
+        "movie_assembled": movie is not None,
+        "movie_url": movie.movieUrl if movie else None,
+    }

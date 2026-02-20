@@ -1,7 +1,11 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Ensure app-level loggers are visible at INFO
+logging.getLogger("app").setLevel(logging.INFO)
 
 from app.config import get_settings
 from app.core.database import Base, engine
