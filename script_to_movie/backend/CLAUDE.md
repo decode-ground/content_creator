@@ -12,6 +12,9 @@ The pipeline has 3 phases, each assigned to a different developer:
 ## Quick Start
 
 ```bash
+# System dependency — required for Phase 3 video assembly
+brew install ffmpeg      # macOS (or apt-get install ffmpeg on Linux)
+
 cd script_to_movie/backend
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, List
 
-from sqlalchemy import String, Text, Enum, Integer, ForeignKey, func
+from sqlalchemy import String, Text, Integer, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -16,25 +16,11 @@ class Project(Base):
     __tablename__ = "projects"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    userId: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
+    userId: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     scriptContent: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(
-        Enum(
-            "draft",
-            "parsing",
-            "parsed",
-            "generating_storyboard",
-            "generating_videos",
-            "assembling",
-            "completed",
-            "failed",
-            name="project_status",
-        ),
-        nullable=False,
-        default="draft",
-    )
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     errorMessage: Mapped[str | None] = mapped_column(Text, nullable=True)
     trailerUrl: Mapped[str | None] = mapped_column(String(500), nullable=True)

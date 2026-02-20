@@ -80,6 +80,50 @@ export const projectsApi = {
     request<FinalMovie | null>(`/projects/${projectId}/movie`),
 };
 
+// Phase 3 Test API
+export const phase3Api = {
+  submitImageToVideo: async (
+    image: File,
+    prompt: string,
+    duration: number
+  ): Promise<{ task_id: string; duration: number; prompt: string }> => {
+    const formData = new FormData();
+    formData.append("image", image);
+    formData.append("prompt", prompt);
+    formData.append("duration", String(duration));
+
+    const response = await fetch(`${API_BASE}/phases/storyboard-to-movie/test-image-to-video`, {
+      method: "POST",
+      credentials: "include",
+      body: formData,
+      // No Content-Type header — browser sets it with the multipart boundary
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new ApiError(error.detail || response.statusText, response.status);
+    }
+
+    return response.json();
+  },
+
+  pollImageToVideo: async (
+    taskId: string
+  ): Promise<{ status: string; video_url?: string; error?: string }> => {
+    const response = await fetch(
+      `${API_BASE}/phases/storyboard-to-movie/test-image-to-video/${taskId}`,
+      { credentials: "include" }
+    );
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new ApiError(error.detail || response.statusText, response.status);
+    }
+
+    return response.json();
+  },
+};
+
 // Workflow API
 export const workflowApi = {
   start: (projectId: number, workflowType: string) =>
@@ -131,6 +175,7 @@ export interface Scene {
   description: string;
   setting: string | null;
   characters: string | null;
+  dialogue: string | null;
   duration: number | null;
   order: number;
   createdAt: string;
@@ -188,8 +233,7 @@ export interface WorkflowStatus {
   projectId: number;
   status: string;
   progress: number;
-  currentStep: string | null;
-  error: string | null;
+  errorMessage: string | null;
 }
 
 export { ApiError };

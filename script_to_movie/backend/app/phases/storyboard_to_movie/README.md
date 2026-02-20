@@ -339,24 +339,33 @@ curl http://localhost:8000/api/phases/storyboard-to-movie/1/status \
 curl http://localhost:8000/api/projects/1/movie -b "session=YOUR_TOKEN"
 ```
 
-## Dependencies to Add
+## Dependencies
+
+### System dependency (must be installed separately)
+
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu / Debian
+sudo apt-get install ffmpeg
+
+# Verify installation
+ffmpeg -version
+```
+
+ffmpeg is used by `agents/video_assembly.py` to merge TTS audio into video clips and to concatenate all scene clips into the final movie.
+
+### Python packages
 
 Add these to `backend/pyproject.toml` when you're ready:
 
 ```toml
-# Video processing (pick one)
-"moviepy>=1.0.3",        # Easier API
-# OR
-"ffmpeg-python>=0.2.0",  # More control
-
-# TTS (pick one)
-"openai>=1.0.0",         # OpenAI TTS
-# OR
-"elevenlabs>=0.2.0",     # ElevenLabs
+"gTTS>=2.3.0",           # Text-to-speech (used by video assembly)
+"httpx>=0.26.0",         # Async HTTP for downloading clips / calling APIs
 
 # Video generation API (pick one)
 "replicate>=0.15.0",     # Replicate (many models)
-"httpx>=0.26.0",         # Direct HTTP API calls
 ```
 
 ## Reference

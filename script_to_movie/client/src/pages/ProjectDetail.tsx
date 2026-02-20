@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { projectsApi, workflowApi } from "@/lib/api";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Play, Images, Loader2 } from "lucide-react";
+import { ArrowLeft, Play, Images, Loader2, Users, MapPin, Film, FileText } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -25,6 +25,24 @@ export default function ProjectDetail() {
     enabled: projectId > 0,
   });
 
+  const scenesQuery = useQuery({
+    queryKey: ["scenes", projectId],
+    queryFn: () => projectsApi.getScenes(projectId),
+    enabled: projectId > 0,
+  });
+
+  const charactersQuery = useQuery({
+    queryKey: ["characters", projectId],
+    queryFn: () => projectsApi.getCharacters(projectId),
+    enabled: projectId > 0,
+  });
+
+  const settingsQuery = useQuery({
+    queryKey: ["settings", projectId],
+    queryFn: () => projectsApi.getSettings(projectId),
+    enabled: projectId > 0,
+  });
+
   const storyboardsQuery = useQuery({
     queryKey: ["storyboards", projectId],
     queryFn: () => projectsApi.getStoryboards(projectId),
@@ -34,6 +52,12 @@ export default function ProjectDetail() {
   const finalMovieQuery = useQuery({
     queryKey: ["finalMovie", projectId],
     queryFn: () => projectsApi.getFinalMovie(projectId),
+    enabled: projectId > 0,
+  });
+
+  const workflowStatusQuery = useQuery({
+    queryKey: ["workflowStatus", projectId],
+    queryFn: () => workflowApi.getStatus(projectId),
     enabled: projectId > 0,
   });
 
@@ -49,22 +73,54 @@ export default function ProjectDetail() {
     }
   }, [projectQuery.data]);
 
-  // Auto-refresh storyboards and movie when processing
+  // Auto-refresh when processing — poll both project and workflow status
   useEffect(() => {
     if (!isProcessing) return;
 
     const interval = setInterval(() => {
+      projectQuery.refetch();
+      workflowStatusQuery.refetch();
+      scenesQuery.refetch();
+      charactersQuery.refetch();
+      settingsQuery.refetch();
       storyboardsQuery.refetch();
       finalMovieQuery.refetch();
 
-      // Check if processing is complete
-      if (storyboardsQuery.data?.length || finalMovieQuery.data?.movieUrl) {
+      // Check if processing is complete via project status or workflow status
+      const projectStatus = projectQuery.data?.status;
+      const workflowStatus = workflowStatusQuery.data?.status;
+      if (
+        projectStatus === "completed" ||
+        projectStatus === "parsed" ||
+        projectStatus === "phase1_complete" ||
+        workflowStatus === "phase1_complete" ||
+        workflowStatus === "completed" ||
+        projectStatus === "failed" ||
+        workflowStatus === "failed"
+      ) {
         setIsProcessing(false);
+        if (
+          projectStatus === "completed" ||
+          projectStatus === "parsed" ||
+          projectStatus === "phase1_complete" ||
+          workflowStatus === "phase1_complete" ||
+          workflowStatus === "completed"
+        ) {
+          toast.success("Processing complete!");
+          setActiveTab("scenes");
+        } else if (projectStatus === "failed" || workflowStatus === "failed") {
+          toast.error(
+            "Processing failed: " +
+              (projectQuery.data?.errorMessage ||
+                workflowStatusQuery.data?.errorMessage ||
+                "Unknown error")
+          );
+        }
       }
     }, 3000);
 
     return () => clearInterval(interval);
-  }, [isProcessing, storyboardsQuery, finalMovieQuery]);
+  }, [isProcessing, projectQuery.data?.status, workflowStatusQuery.data?.status]);
 
   const handleGenerateMovie = async () => {
     try {
@@ -74,7 +130,6 @@ export default function ProjectDetail() {
         workflowType: "full_pipeline",
       });
       toast.success("Processing started! This may take a few minutes...");
-      setActiveTab("storyboard");
     } catch (error) {
       setIsProcessing(false);
       toast.error("Failed to start processing");
@@ -105,8 +160,23 @@ export default function ProjectDetail() {
     );
   }
 
+  const scenes = scenesQuery.data || [];
+  const characters = charactersQuery.data || [];
+  const settings = settingsQuery.data || [];
+  const hasScenes = scenes.length > 0;
   const hasStoryboards = storyboardsQuery.data && storyboardsQuery.data.length > 0;
   const hasMovie = finalMovieQuery.data?.movieUrl;
+
+  // Status badge
+  const statusColors: Record<string, string> = {
+    draft: "bg-slate-600",
+    parsing: "bg-yellow-600",
+    parsed: "bg-green-600",
+    phase1_complete: "bg-green-600",
+    generating_videos: "bg-blue-600",
+    completed: "bg-emerald-600",
+    failed: "bg-red-600",
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
@@ -117,7 +187,15 @@ export default function ProjectDetail() {
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
           </Button>
-          <h1 className="text-4xl font-bold text-white">{project.title}</h1>
+          <div className="flex items-center gap-4">
+            <h1 className="text-4xl font-bold text-white">{project.title}</h1>
+            <span className={`px-3 py-1 rounded-full text-xs font-medium text-white ${statusColors[project.status] || "bg-slate-600"}`}>
+              {project.status}
+            </span>
+            {project.progress > 0 && project.progress < 100 && (
+              <span className="text-sm text-slate-400">{project.progress}%</span>
+            )}
+          </div>
           {project.description && <p className="text-slate-400 mt-2">{project.description}</p>}
         </div>
       </div>
@@ -125,9 +203,22 @@ export default function ProjectDetail() {
       {/* Main Content */}
       <div className="container mx-auto px-4 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="bg-slate-800 border-slate-700 w-full justify-start">
+          <TabsList className="bg-slate-800 border-slate-700 w-full justify-start flex-wrap">
             <TabsTrigger value="input" className="text-slate-400 data-[state=active]:text-white">
+              <FileText className="mr-2 h-4 w-4" />
               Script
+            </TabsTrigger>
+            <TabsTrigger value="scenes" className="text-slate-400 data-[state=active]:text-white">
+              <Film className="mr-2 h-4 w-4" />
+              Scenes {hasScenes && <span className="ml-1 text-xs opacity-70">({scenes.length})</span>}
+            </TabsTrigger>
+            <TabsTrigger value="characters" className="text-slate-400 data-[state=active]:text-white">
+              <Users className="mr-2 h-4 w-4" />
+              Characters {characters.length > 0 && <span className="ml-1 text-xs opacity-70">({characters.length})</span>}
+            </TabsTrigger>
+            <TabsTrigger value="settings" className="text-slate-400 data-[state=active]:text-white">
+              <MapPin className="mr-2 h-4 w-4" />
+              Settings {settings.length > 0 && <span className="ml-1 text-xs opacity-70">({settings.length})</span>}
             </TabsTrigger>
             <TabsTrigger value="storyboard" className="text-slate-400 data-[state=active]:text-white">
               <Images className="mr-2 h-4 w-4" />
@@ -175,6 +266,140 @@ export default function ProjectDetail() {
             </Card>
           </TabsContent>
 
+          {/* Scenes Tab */}
+          <TabsContent value="scenes" className="space-y-6">
+            {isProcessing && !hasScenes && (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <Loader2 className="w-8 h-8 text-purple-500 animate-spin mx-auto mb-4" />
+                  <p className="text-slate-300 mb-2">Analyzing script...</p>
+                  <p className="text-sm text-slate-500">Extracting scenes, characters, and settings</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {hasScenes ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-400">{scenes.length} scenes extracted from your screenplay</p>
+                {scenes.map((scene) => (
+                  <Card key={scene.id} className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                    <CardHeader className="pb-3">
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="text-white text-lg">
+                          Scene {scene.sceneNumber}: {scene.title}
+                        </CardTitle>
+                        <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded">
+                          {scene.duration || "\u2014"}s
+                        </span>
+                      </div>
+                      {scene.setting && (
+                        <div className="flex items-center gap-1 text-sm text-purple-400">
+                          <MapPin className="h-3 w-3" />
+                          {scene.setting}
+                        </div>
+                      )}
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <p className="text-slate-300 text-sm leading-relaxed">{scene.description}</p>
+                      {scene.characters && (
+                        <div className="flex flex-wrap gap-2">
+                          {JSON.parse(scene.characters).map((name: string) => (
+                            <span key={name} className="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded-full">
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : !isProcessing ? (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <Film className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400">Click "Generate Movie" to analyze your script</p>
+                </CardContent>
+              </Card>
+            ) : null}
+          </TabsContent>
+
+          {/* Characters Tab */}
+          <TabsContent value="characters" className="space-y-6">
+            {characters.length > 0 ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-400">{characters.length} characters identified</p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {characters.map((char) => (
+                    <Card key={char.id} className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-lg flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center text-sm font-bold text-white">
+                            {char.name.charAt(0)}
+                          </div>
+                          {char.name}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <p className="text-slate-300 text-sm">{char.description}</p>
+                        {char.visualDescription && (
+                          <div className="border-t border-slate-700 pt-2 mt-2">
+                            <p className="text-xs text-slate-500 mb-1">Visual Description</p>
+                            <p className="text-slate-400 text-sm italic">{char.visualDescription}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <Users className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400">Characters will appear after script analysis</p>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          {/* Settings Tab */}
+          <TabsContent value="settings" className="space-y-6">
+            {settings.length > 0 ? (
+              <div className="space-y-4">
+                <p className="text-sm text-slate-400">{settings.length} locations/settings identified</p>
+                <div className="grid gap-4 md:grid-cols-2">
+                  {settings.map((setting) => (
+                    <Card key={setting.id} className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-white text-lg flex items-center gap-2">
+                          <MapPin className="h-5 w-5 text-purple-400" />
+                          {setting.name}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-2">
+                        <p className="text-slate-300 text-sm">{setting.description}</p>
+                        {setting.visualDescription && (
+                          <div className="border-t border-slate-700 pt-2 mt-2">
+                            <p className="text-xs text-slate-500 mb-1">Visual Description</p>
+                            <p className="text-slate-400 text-sm italic">{setting.visualDescription}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <MapPin className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400">Settings/locations will appear after script analysis</p>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
           {/* Storyboard Tab */}
           <TabsContent value="storyboard" className="space-y-6">
             {isProcessing && !hasStoryboards && (
@@ -209,14 +434,14 @@ export default function ProjectDetail() {
                   ))}
                 </div>
               </div>
-            ) : (
+            ) : !isProcessing ? (
               <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
                 <CardContent className="py-12 text-center">
                   <Images className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                  <p className="text-slate-400">Generate a movie to see the storyboard</p>
+                  <p className="text-slate-400">Storyboard images will appear here after Phase 2</p>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
           </TabsContent>
 
           {/* Movie Tab */}
@@ -270,14 +495,14 @@ export default function ProjectDetail() {
                   </div>
                 </CardContent>
               </Card>
-            ) : (
+            ) : !isProcessing ? (
               <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
                 <CardContent className="py-12 text-center">
                   <Play className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                  <p className="text-slate-400">Generate a movie to watch it here</p>
+                  <p className="text-slate-400">Movie will be assembled in the final phase</p>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
           </TabsContent>
         </Tabs>
       </div>

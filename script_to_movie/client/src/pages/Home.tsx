@@ -12,10 +12,42 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 export default function Home() {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, login, register } = useAuth();
   const [, setLocation] = useLocation();
   const [isOpen, setIsOpen] = useState(false);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authForm, setAuthForm] = useState({ email: "", password: "", name: "" });
+  const [authLoading, setAuthLoading] = useState(false);
   const [formData, setFormData] = useState({ title: "", scriptContent: "" });
+
+  const handleAuth = async () => {
+    if (!authForm.email || !authForm.password) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      if (authMode === "register") {
+        if (!authForm.name) {
+          toast.error("Please enter your name");
+          setAuthLoading(false);
+          return;
+        }
+        await register(authForm.email, authForm.password, authForm.name);
+        toast.success("Account created!");
+      } else {
+        await login(authForm.email, authForm.password);
+        toast.success("Logged in!");
+      }
+      setIsAuthOpen(false);
+      setAuthForm({ email: "", password: "", name: "" });
+    } catch (error: any) {
+      toast.error(error?.message || "Authentication failed");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   const createProjectMutation = useMutation({
     mutationFn: projectsApi.create,
@@ -68,7 +100,7 @@ export default function Home() {
                 </Button>
               </>
             ) : (
-              <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700">
+              <Button onClick={() => { setAuthMode("login"); setIsAuthOpen(true); }} className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700">
                 Sign In
               </Button>
             )}
@@ -105,13 +137,13 @@ export default function Home() {
                       Create Project
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl">
+                  <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl max-h-[90vh] flex flex-col">
                     <DialogHeader>
                       <DialogTitle className="text-white">Create New Project</DialogTitle>
                       <DialogDescription>Upload your screenplay to get started</DialogDescription>
                     </DialogHeader>
 
-                    <div className="space-y-4">
+                    <div className="space-y-4 overflow-y-auto flex-1 pr-2">
                       <div>
                         <label className="block text-sm font-medium text-slate-200 mb-2">Project Title</label>
                         <Input
@@ -131,15 +163,15 @@ export default function Home() {
                           className="bg-slate-800 border-slate-700 text-white placeholder-slate-500 min-h-64 font-mono text-sm"
                         />
                       </div>
-
-                      <Button
-                        onClick={handleCreateProject}
-                        disabled={createProjectMutation.isPending}
-                        className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-11"
-                      >
-                        {createProjectMutation.isPending ? "Creating..." : "Create Project"}
-                      </Button>
                     </div>
+
+                    <Button
+                      onClick={handleCreateProject}
+                      disabled={createProjectMutation.isPending}
+                      className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-11 shrink-0"
+                    >
+                      {createProjectMutation.isPending ? "Creating..." : "Create Project"}
+                    </Button>
                   </DialogContent>
                 </Dialog>
 
@@ -153,7 +185,7 @@ export default function Home() {
                 </Button>
               </>
             ) : (
-              <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
+              <Button onClick={() => { setAuthMode("register"); setIsAuthOpen(true); }} className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
                 <Play className="mr-2 h-5 w-5" />
                 Get Started
               </Button>
@@ -234,7 +266,7 @@ export default function Home() {
               </DialogTrigger>
             </Dialog>
           ) : (
-            <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
+            <Button onClick={() => { setAuthMode("login"); setIsAuthOpen(true); }} className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-12 px-8 text-lg">
               Sign In to Get Started
             </Button>
           )}
@@ -247,6 +279,89 @@ export default function Home() {
           <p>© 2026 Script to Movie. Powered by AI agents and advanced prompting.</p>
         </div>
       </footer>
+
+      {/* Auth Dialog */}
+      <Dialog open={isAuthOpen} onOpenChange={setIsAuthOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white">
+              {authMode === "login" ? "Sign In" : "Create Account"}
+            </DialogTitle>
+            <DialogDescription>
+              {authMode === "login"
+                ? "Sign in to your account to get started"
+                : "Create a new account to start making movies"}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {authMode === "register" && (
+              <div>
+                <label className="block text-sm font-medium text-slate-200 mb-2">Name</label>
+                <Input
+                  placeholder="Your name"
+                  value={authForm.name}
+                  onChange={(e) => setAuthForm({ ...authForm, name: e.target.value })}
+                  className="bg-slate-800 border-slate-700 text-white placeholder-slate-500"
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-slate-200 mb-2">Email</label>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                value={authForm.email}
+                onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+                className="bg-slate-800 border-slate-700 text-white placeholder-slate-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-200 mb-2">Password</label>
+              <Input
+                type="password"
+                placeholder="Password"
+                value={authForm.password}
+                onChange={(e) => setAuthForm({ ...authForm, password: e.target.value })}
+                onKeyDown={(e) => e.key === "Enter" && handleAuth()}
+                className="bg-slate-800 border-slate-700 text-white placeholder-slate-500"
+              />
+            </div>
+
+            <Button
+              onClick={handleAuth}
+              disabled={authLoading}
+              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white h-11"
+            >
+              {authLoading
+                ? "Please wait..."
+                : authMode === "login"
+                  ? "Sign In"
+                  : "Create Account"}
+            </Button>
+
+            <p className="text-center text-sm text-slate-400">
+              {authMode === "login" ? (
+                <>
+                  Don't have an account?{" "}
+                  <button onClick={() => setAuthMode("register")} className="text-purple-400 hover:text-purple-300">
+                    Sign up
+                  </button>
+                </>
+              ) : (
+                <>
+                  Already have an account?{" "}
+                  <button onClick={() => setAuthMode("login")} className="text-purple-400 hover:text-purple-300">
+                    Sign in
+                  </button>
+                </>
+              )}
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

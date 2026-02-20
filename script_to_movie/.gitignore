@@ -111,6 +111,7 @@ __pycache__/
 *.py[cod]
 *.pyo
 .Python
+*$py.class
 .venv/
 venv/
 *.egg-info/

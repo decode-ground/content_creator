@@ -4,7 +4,7 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "mysql+aiomysql://root:password@localhost:3306/script_to_movie"
+    database_url: str = "sqlite+aiosqlite:///./data.db"
 
     # JWT
     jwt_secret: str = "your-secret-key-change-in-production"
@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
+
+    # Kling AI
+    kling_api_key: str = ""
+    kling_secret_key: str = ""
 
     # AWS S3
     aws_access_key_id: str = ""
