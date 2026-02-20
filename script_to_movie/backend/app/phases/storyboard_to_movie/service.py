@@ -41,7 +41,7 @@ from app.models.character import Character
 from app.models.setting import Setting
 from app.models.video import VideoPrompt, GeneratedVideo
 from app.models.final_movie import FinalMovie
-from app.phases.storyboard_to_movie.agents.video_assembly import VideoAssemblyAgent
+from app.phases.storyboard_to_movie.agents.video_assembly import assemble_final_movie
 from app.phases.storyboard_to_movie.agents.video_generation import VideoGenerationAgent
 from app.phases.storyboard_to_movie.agents.video_prompt import VideoPromptAgent
 from app.phases.storyboard_to_movie.prompts import (
@@ -266,7 +266,7 @@ async def run_tts_generation(db: AsyncSession, project_id: int) -> dict:
 
 async def run_video_assembly(db: AsyncSession, project_id: int) -> dict:
     """Combine video + audio per scene, then assemble final movie. Creates FinalMovie record."""
-    return await VideoAssemblyAgent().safe_execute(db, project_id)
+    return await assemble_final_movie(db, project_id)
 
 
 async def get_generation_status(db: AsyncSession, project_id: int) -> dict:
