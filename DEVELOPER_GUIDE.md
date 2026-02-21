@@ -337,6 +337,9 @@ script_to_movie/
 ├── AGENT_INTEGRATION_GUIDE.md      ← How frontend talks to backend
 ├── AWS_SETUP_GUIDE.md              ← Deploying to AWS (Stage 3)
 └── todo.md                         ← What's been built and what's left
+│
+├── README.md                       ← (repo root) Project overview and quick start
+└── DEVELOPER_GUIDE.md              ← (repo root) Full development lifecycle guide
 ```
 
 #### What can I modify?
@@ -846,7 +849,7 @@ Catching these in staging costs nothing. Catching them in production costs users
 
 #### What to do
 
-1. **Follow the AWS Setup Guide** (`AWS_SETUP_GUIDE.md`) to provision a staging environment. Use the same steps as production but with a separate set of AWS resources (a different S3 bucket, RDS instance, and EC2 instance, all named with a `-staging` suffix).
+1. **Follow the AWS Setup Guide** (`script_to_movie/AWS_SETUP_GUIDE.md`) to provision a staging environment. Use the same steps as production but with a separate set of AWS resources (a different S3 bucket, RDS instance, and EC2 instance, all named with a `-staging` suffix).
 
 2. **Deploy the app to staging** exactly as you will deploy to production.
 
@@ -873,7 +876,7 @@ Once every item is checked, move to Stage 3.
 
 **Goal:** Put the production app on the internet so it is accessible to real users.
 
-When you're ready, follow the [AWS Setup Guide](./AWS_SETUP_GUIDE.md). It covers:
+When you're ready, follow the [AWS Setup Guide](./script_to_movie/AWS_SETUP_GUIDE.md). It covers:
 
 - Creating an AWS account
 - Setting up S3 for file storage (replaces the local `media/` folder)
@@ -1291,4 +1294,4 @@ All endpoints (except auth) require authentication. Pass `-b cookies.txt` with c
 #### S3 upload fails (Stage 3)
 
 - If you haven't configured AWS credentials, this is expected during Stages 1 and 2. The app falls back to saving files in a local `media/` directory.
-- To set up S3, follow the [AWS Setup Guide](./AWS_SETUP_GUIDE.md)
+- To set up S3, follow the [AWS Setup Guide](./script_to_movie/AWS_SETUP_GUIDE.md)
