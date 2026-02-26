@@ -6,9 +6,13 @@ Falls back to placeholder videos when Kling API credits are unavailable.
 
 import asyncio
 import logging
+import os
+import subprocess
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 
 import httpx
 import jwt
@@ -92,7 +96,7 @@ async def generate_video_clip(
     }
 
     request_body = {
-        "model_name": "kling-v2-master",
+        "model_name": settings.kling_model,
         "prompt": prompt,
         "duration": kling_duration,
         "aspect_ratio": "16:9",
@@ -116,17 +120,39 @@ async def generate_video_clip(
                 json=request_body,
             )
 
-            # Check for billing/balance errors — fall back to mock
-            if response.status_code == 429:
-                body = response.json()
-                if body.get("code") == 1102:
-                    logger.warning(
-                        "Kling API: insufficient balance (code 1102) — using mock video"
-                    )
+            # Check for errors in response body (Kling returns error codes even on 200)
+            if response.status_code != 200:
+                try:
+                    body = response.json()
+                except Exception:
+                    body = {"raw": response.text}
+                logger.warning(
+                    "Kling API HTTP %d for project %d scene %d (model=%s): %s",
+                    response.status_code,
+                    project_id,
+                    scene_id,
+                    settings.kling_model,
+                    body,
+                )
+                if response.status_code == 429 or body.get("code") == 1102:
                     return _mock_video_clip(prompt, duration, project_id, scene_id)
+                response.raise_for_status()
 
-            response.raise_for_status()
             result = response.json()
+
+            # Check for error codes in 200 responses
+            if result.get("code") != 0:
+                logger.warning(
+                    "Kling API error code %s for project %d scene %d (model=%s): %s",
+                    result.get("code"),
+                    project_id,
+                    scene_id,
+                    settings.kling_model,
+                    result.get("message", result),
+                )
+                if result.get("code") == 1102:
+                    return _mock_video_clip(prompt, duration, project_id, scene_id)
+                raise RuntimeError(f"Kling API error: {result.get('message', result)}")
 
             task_id = result["data"]["task_id"]
             logger.info("Kling task created: %s", task_id)
@@ -154,7 +180,7 @@ async def generate_video_clip(
                     attempt + 1,
                 )
 
-                if task_status == "completed":
+                if task_status in ("completed", "succeed"):
                     videos = poll_result["data"]["task_result"]["videos"]
                     video_url = videos[0]["url"]
 
@@ -213,28 +239,109 @@ async def assemble_trailer(
     project_id: int,
     transition_duration: float = 0.5,
 ) -> AssembledTrailer:
-    """Assemble individual scene clips into a final trailer video.
+    """Assemble individual scene clips into a final trailer video using ffmpeg."""
+    if not clips:
+        raise ValueError("Cannot assemble trailer: no clips provided")
 
-    Currently returns a placeholder — real assembly requires ffmpeg/MoviePy.
-    """
     movie_id = uuid.uuid4().hex[:8]
     movie_key = f"projects/{project_id}/trailers/trailer-{movie_id}.mp4"
 
     total_duration = sum(c.duration for c in clips)
-    if len(clips) > 1:
-        total_duration -= int(transition_duration * (len(clips) - 1))
 
     logger.info(
-        "Trailer assembly for project %d: %d clips, %ds total",
+        "Assembling trailer for project %d: %d clips, %ds total",
         project_id,
         len(clips),
         total_duration,
     )
 
-    trailer_url = clips[0].videoUrl if clips else ""
+    # If only one clip, just use it directly
+    if len(clips) == 1:
+        return AssembledTrailer(
+            movieUrl=clips[0].videoUrl,
+            movieKey=movie_key,
+            totalDuration=total_duration,
+        )
 
-    return AssembledTrailer(
-        movieUrl=trailer_url,
-        movieKey=movie_key,
-        totalDuration=total_duration,
-    )
+    # Multiple clips: concatenate with ffmpeg
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+
+            # Download all clips
+            clip_files = []
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                for i, clip in enumerate(clips):
+                    clip_path = tmpdir_path / f"clip_{i:03d}.mp4"
+                    logger.info(f"Downloading clip {i+1}/{len(clips)}: {clip.videoUrl}")
+                    response = await client.get(clip.videoUrl)
+                    response.raise_for_status()
+                    clip_path.write_bytes(response.content)
+                    clip_files.append(clip_path)
+
+            # Create concat list file for ffmpeg
+            concat_file = tmpdir_path / "concat.txt"
+            with open(concat_file, "w") as f:
+                for clip_path in clip_files:
+                    f.write(f"file '{clip_path.absolute()}'\n")
+
+            # Run ffmpeg to concatenate and re-encode (ensures compatibility)
+            output_path = tmpdir_path / "trailer.mp4"
+            cmd = [
+                "ffmpeg",
+                "-f", "concat",
+                "-safe", "0",
+                "-i", str(concat_file),
+                "-c:v", "libx264",      # Re-encode video to H.264
+                "-preset", "fast",       # Fast encoding
+                "-crf", "23",           # Quality (lower = better, 23 is default)
+                "-c:a", "aac",          # Re-encode audio to AAC
+                "-b:a", "128k",         # Audio bitrate
+                "-movflags", "+faststart",  # Web optimization
+                str(output_path),
+            ]
+
+            logger.info(f"Running ffmpeg: {' '.join(cmd)}")
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 min timeout
+            )
+
+            if result.returncode != 0:
+                logger.error(f"ffmpeg failed: {result.stderr}")
+                raise RuntimeError(f"ffmpeg concatenation failed: {result.stderr}")
+
+            # For now, store locally (in production you'd upload to S3)
+            # Create output directory if needed
+            output_dir = Path("./trailers")
+            output_dir.mkdir(exist_ok=True)
+
+            final_path = output_dir / f"trailer-{movie_id}.mp4"
+            final_path.write_bytes(output_path.read_bytes())
+
+            trailer_url = f"/trailers/trailer-{movie_id}.mp4"
+
+            logger.info(
+                "Trailer assembled for project %d: %s (%d clips, %ds)",
+                project_id,
+                trailer_url,
+                len(clips),
+                total_duration,
+            )
+
+            return AssembledTrailer(
+                movieUrl=trailer_url,
+                movieKey=movie_key,
+                totalDuration=total_duration,
+            )
+
+    except Exception as e:
+        logger.error(f"Trailer assembly failed: {e}")
+        # Fallback: just return first clip
+        return AssembledTrailer(
+            movieUrl=clips[0].videoUrl,
+            movieKey=movie_key,
+            totalDuration=clips[0].duration,
+        )

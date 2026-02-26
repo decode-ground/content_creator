@@ -39,7 +39,7 @@ class GeneratedVideo(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     sceneId: Mapped[int] = mapped_column(Integer, ForeignKey("scenes.id"), nullable=False)
     projectId: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False)
-    videoUrl: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    videoUrl: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     videoKey: Mapped[str | None] = mapped_column(String(512), nullable=True)
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")

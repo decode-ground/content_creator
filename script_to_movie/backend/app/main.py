@@ -1,6 +1,11 @@
+import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+
+logging.basicConfig(level=logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
@@ -51,3 +56,8 @@ app.include_router(trailer_to_storyboard_router)
 app.include_router(storyboard_to_movie_router)
 app.include_router(workflow_router)
 app.include_router(system_router)
+
+# Mount static files for trailers
+trailers_dir = Path("./trailers")
+trailers_dir.mkdir(exist_ok=True)
+app.mount("/trailers", StaticFiles(directory=str(trailers_dir)), name="trailers")

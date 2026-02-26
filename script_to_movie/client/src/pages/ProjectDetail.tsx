@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { projectsApi, workflowApi } from "@/lib/api";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { ArrowLeft, Play, Images, Loader2, Users, MapPin, Film, FileText } from "lucide-react";
+import { ArrowLeft, Play, Images, Loader2, Users, MapPin, Film, FileText, Video } from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
@@ -49,6 +49,12 @@ export default function ProjectDetail() {
     enabled: projectId > 0,
   });
 
+  const generatedVideosQuery = useQuery({
+    queryKey: ["generatedVideos", projectId],
+    queryFn: () => projectsApi.getGeneratedVideos(projectId),
+    enabled: projectId > 0,
+  });
+
   const finalMovieQuery = useQuery({
     queryKey: ["finalMovie", projectId],
     queryFn: () => projectsApi.getFinalMovie(projectId),
@@ -84,6 +90,7 @@ export default function ProjectDetail() {
       charactersQuery.refetch();
       settingsQuery.refetch();
       storyboardsQuery.refetch();
+      generatedVideosQuery.refetch();
       finalMovieQuery.refetch();
 
       // Check if processing is complete via project status or workflow status
@@ -165,6 +172,8 @@ export default function ProjectDetail() {
   const settings = settingsQuery.data || [];
   const hasScenes = scenes.length > 0;
   const hasStoryboards = storyboardsQuery.data && storyboardsQuery.data.length > 0;
+  const generatedVideos = generatedVideosQuery.data || [];
+  const hasTrailerVideos = generatedVideos.length > 0;
   const hasMovie = finalMovieQuery.data?.movieUrl;
 
   // Status badge
@@ -219,6 +228,10 @@ export default function ProjectDetail() {
             <TabsTrigger value="settings" className="text-slate-400 data-[state=active]:text-white">
               <MapPin className="mr-2 h-4 w-4" />
               Settings {settings.length > 0 && <span className="ml-1 text-xs opacity-70">({settings.length})</span>}
+            </TabsTrigger>
+            <TabsTrigger value="trailer" className="text-slate-400 data-[state=active]:text-white">
+              <Video className="mr-2 h-4 w-4" />
+              Trailer {hasMovie && <span className="ml-1 text-xs opacity-70">&#10003;</span>}
             </TabsTrigger>
             <TabsTrigger value="storyboard" className="text-slate-400 data-[state=active]:text-white">
               <Images className="mr-2 h-4 w-4" />
@@ -400,6 +413,66 @@ export default function ProjectDetail() {
             )}
           </TabsContent>
 
+          {/* Trailer Tab */}
+          <TabsContent value="trailer" className="space-y-6">
+            {isProcessing && !hasMovie && (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <Loader2 className="w-8 h-8 text-purple-500 animate-spin mx-auto mb-4" />
+                  <p className="text-slate-300 mb-2">Generating your 10-second trailer...</p>
+                  <p className="text-sm text-slate-500">
+                    Claude is crafting a cinematic prompt from your screenplay, then Kling AI is rendering the video.
+                    This usually takes 5–10 minutes.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
+            {hasMovie && finalMovieQuery.data ? (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50 overflow-hidden">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Play className="h-5 w-5 text-purple-400" />
+                    {project.title} — Trailer
+                  </CardTitle>
+                  <CardDescription>10-second cinematic trailer generated from your screenplay</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="aspect-video bg-black rounded-lg overflow-hidden">
+                    <video
+                      src={finalMovieQuery.data.movieUrl || ""}
+                      controls
+                      autoPlay
+                      className="w-full h-full"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-sm text-slate-400">
+                    <span>{finalMovieQuery.data.duration || 10}s · H.264 · 16:9</span>
+                  </div>
+                  <Button
+                    onClick={() => {
+                      const a = document.createElement("a");
+                      a.href = finalMovieQuery.data?.movieUrl || "";
+                      a.download = `${project.title}-trailer.mp4`;
+                      a.click();
+                    }}
+                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
+                  >
+                    Download Trailer
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : !isProcessing ? (
+              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+                <CardContent className="py-12 text-center">
+                  <Video className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400 mb-2">No trailer yet</p>
+                  <p className="text-sm text-slate-500">Click "Generate Movie" on the Script tab to create your trailer</p>
+                </CardContent>
+              </Card>
+            ) : null}
+          </TabsContent>
+
           {/* Storyboard Tab */}
           <TabsContent value="storyboard" className="space-y-6">
             {isProcessing && !hasStoryboards && (
@@ -446,63 +519,15 @@ export default function ProjectDetail() {
 
           {/* Movie Tab */}
           <TabsContent value="movie" className="space-y-6">
-            {isProcessing && !hasMovie && (
-              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
-                <CardContent className="py-12 text-center">
-                  <Loader2 className="w-8 h-8 text-purple-500 animate-spin mx-auto mb-4" />
-                  <p className="text-slate-300 mb-2">Generating your movie...</p>
-                  <p className="text-sm text-slate-500">This may take several minutes</p>
-                </CardContent>
-              </Card>
-            )}
-
-            {hasMovie && finalMovieQuery.data ? (
-              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50 overflow-hidden">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <Play className="h-5 w-5" />
-                    Your Movie
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="aspect-video bg-black rounded-lg overflow-hidden">
-                    <video
-                      src={finalMovieQuery.data.movieUrl || ""}
-                      controls
-                      className="w-full h-full"
-                      controlsList="nodownload"
-                    />
-                  </div>
-                  <div className="mt-4 flex gap-2">
-                    <Button
-                      onClick={() => {
-                        const a = document.createElement("a");
-                        a.href = finalMovieQuery.data?.movieUrl || "";
-                        a.download = `${project.title}.mp4`;
-                        a.click();
-                      }}
-                      className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white"
-                    >
-                      Download Movie
-                    </Button>
-                    <Button
-                      onClick={() => setActiveTab("input")}
-                      variant="outline"
-                      className="flex-1 border-slate-700 text-slate-200 hover:bg-slate-800"
-                    >
-                      Edit Script
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : !isProcessing ? (
-              <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
-                <CardContent className="py-12 text-center">
-                  <Play className="w-12 h-12 text-slate-600 mx-auto mb-4" />
-                  <p className="text-slate-400">Movie will be assembled in the final phase</p>
-                </CardContent>
-              </Card>
-            ) : null}
+            <Card className="border-slate-700 bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+              <CardContent className="py-12 text-center">
+                <Play className="w-12 h-12 text-slate-600 mx-auto mb-4" />
+                <p className="text-slate-400 mb-2">Full Movie Production (Coming Soon)</p>
+                <p className="text-sm text-slate-500">
+                  This phase will add TTS audio, music, and advanced editing features
+                </p>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
