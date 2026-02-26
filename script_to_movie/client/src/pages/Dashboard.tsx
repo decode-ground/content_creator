@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { projectsApi } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Film, Clock, CheckCircle, AlertCircle, Loader2, ArrowRight } from "lucide-react";
+import { Plus, Film, Clock, CheckCircle, AlertCircle, Loader2, ArrowRight, FlaskConical } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -99,7 +99,16 @@ export default function Dashboard() {
               </div>
               <p className="text-slate-400">Welcome back, {user?.name}</p>
             </div>
-            <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setLocation("/test-video")}
+                className="border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white"
+              >
+                <FlaskConical className="mr-2 h-4 w-4" />
+                Test Video
+              </Button>
+              <Dialog open={isOpen} onOpenChange={setIsOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white">
                   <Plus className="mr-2 h-4 w-4" />
@@ -153,6 +162,7 @@ export default function Dashboard() {
                 </div>
               </DialogContent>
             </Dialog>
+            </div>
           </div>
         </div>
       </div>

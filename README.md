@@ -1,367 +1,89 @@
 # Script-to-Movie
 
-An AI-powered platform that transforms screenplays into full-length generated movies. Upload a script, and the system analyzes it, creates consistent visual representations, generates video for each scene with dialogue audio, and assembles everything into a complete movie.
+An AI-powered platform that transforms screenplays into full-length generated movies. A user pastes a script, and the system parses it into scenes, generates a storyboard, creates a video clip for every scene with dialogue audio, and assembles everything into a final MP4.
 
 ---
 
-## Table of Contents
+## Start Here
 
-| Section | Description |
-|---------|-------------|
-| [How It Works](#how-it-works) | The 3-phase pipeline from script to movie |
-| [Project Structure](#project-structure) | Where everything lives in the codebase |
-| [Getting Started](#getting-started) | How to set up and run the project locally |
-| [For Phase Developers](#for-phase-developers) | Guide for the 3 developers working on phases |
-| [API Reference](#api-reference) | All available API endpoints |
-| [Database Schema](#database-schema) | What data is stored and how |
-| [Tech Stack](#tech-stack) | Technologies used |
+**If you are a developer joining this project, your first read is the Developer Guide.**
+
+> [`DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md)
+
+It covers the full product development cycle from local setup through AWS deployment and Decode Shorts integration, written for developers using Claude Code as their primary tool.
 
 ---
 
-## How It Works
+## Development Stages
 
-A user provides a movie title and script/plot. The system processes it through 3 phases:
+This project is built in stages. Do not move to the next stage until the current one is fully working.
+
+| Stage | Goal | Definition of Done |
+|-------|------|--------------------|
+| **Stage 1** | Build locally with mock videos | All 3 phases run end-to-end; no real video API calls needed |
+| **Stage 2** | Integrate Kling AI and validate quality | Real clips generated; script accuracy, character consistency, and scene coverage all pass; pipeline is resilient and cost-aware |
+| **Stage 2.5** | Staging environment | Full end-to-end test on AWS before real users touch it |
+| **Stage 3** | Deploy to production | App is live on AWS and accessible to users |
+| **Stage 4** | Integrate with Decode Shorts | Script-to-Movie features work as part of the Decode Shorts product |
+
+---
+
+## How the Pipeline Works
+
+A user provides a screenplay. The system runs it through 3 phases:
 
 ```
-User Input: Movie title + script/plot
+Screenplay text
          |
          v
 +----------------------------------------------------------+
 |  PHASE 1: Script to Trailer                              |
 |                                                          |
-|  1. Parse script into a full screenplay with scenes      |
-|     (including all dialogue for each scene)              |
+|  1. Parse script into scenes (with dialogue)             |
 |  2. Generate detailed visual descriptions for every      |
 |     character (hair, clothing, features, etc.)           |
 |  3. Generate detailed visual descriptions for every      |
 |     setting/location                                     |
-|  4. Generate a trailer video using a text-to-video API   |
+|  4. Generate a trailer video using Kling AI              |
 |  5. Extract one key frame from the trailer per scene     |
 |                                                          |
-|  Output: Scene records, Character records, Setting       |
-|          records, Trailer video, Storyboard frames       |
+|  Output: Scene, Character, Setting records               |
+|          Trailer video, Storyboard frames                |
 +----------------------------------------------------------+
          |
          v
 +----------------------------------------------------------+
-|  PHASE 2: Trailer to Storyboard                         |
+|  PHASE 2: Trailer to Storyboard                          |
 |                                                          |
-|  1. Validate that every scene has a corresponding        |
-|     trailer frame                                        |
-|  2. Evaluate if each frame depicts its scene well        |
-|  3. Regenerate poor/missing frames using an image        |
-|     generation API with character + setting descriptions |
+|  1. Validate that every scene has a trailer frame        |
+|  2. Evaluate if each frame depicts its scene accurately  |
+|  3. Regenerate poor or missing frames using image        |
+|     generation with character + setting descriptions     |
 |                                                          |
-|  Output: Validated storyboard (1 quality frame per scene)|
+|  Output: Validated storyboard (1 quality frame/scene)    |
 +----------------------------------------------------------+
          |
          v
 +----------------------------------------------------------+
-|  PHASE 3: Storyboard to Movie                           |
+|  PHASE 3: Storyboard to Movie                            |
 |                                                          |
-|  1. Create optimized video generation prompts per scene  |
-|  2. Generate a video clip per scene using image-to-video |
-|     (storyboard image = visual reference, scene          |
-|     description = text prompt)                           |
-|  3. Generate TTS (text-to-speech) audio from each        |
-|     scene's dialogue                                     |
+|  1. Generate optimized video prompts per scene           |
+|  2. Generate a video clip per scene (storyboard image    |
+|     as visual reference, scene description as prompt)    |
+|  3. Generate TTS audio from each scene's dialogue        |
 |  4. Combine video + audio for each scene                 |
-|  5. Assemble all scene clips into the final full movie   |
+|  5. Assemble all clips into the final movie              |
 |                                                          |
 |  Output: Final movie (MP4, H.264, 1080p, 24fps)         |
 +----------------------------------------------------------+
 ```
 
-### Important Design Principles
+### Key design principles
 
-- **Phases communicate only through the database.** Phase 2 reads what Phase 1 wrote. Phase 3 reads what Phase 2 wrote. No code imports between phases.
-- **Every scene must have dialogue** (if there are spoken parts). Phase 3 uses `Scene.dialogue` to generate TTS audio.
-- **Every scene must have exactly one storyboard frame.** Phase 3 uses these as visual references for video generation.
-- **Character visual descriptions must be detailed and consistent** across all phases. The same character should look the same in every generated image and video.
-
----
-
-## Project Structure
-
-```
-script_to_movie/
-|
-+-- backend/                          <-- Python FastAPI backend
-|   |-- CLAUDE.md                     <-- START HERE (backend developer guide)
-|   |-- .env.example                  <-- Environment variable template
-|   |-- pyproject.toml                <-- Python dependencies
-|   |-- alembic.ini                   <-- Database migration config
-|   |-- alembic/                      <-- Database migration files
-|   |
-|   +-- app/
-|       |-- main.py                   <-- FastAPI entry point
-|       |-- config.py                 <-- Environment settings
-|       |
-|       |-- core/                     <-- Shared infrastructure (DO NOT MODIFY)
-|       |   |-- database.py           <-- Database connection + sessions
-|       |   |-- security.py           <-- JWT tokens + password hashing
-|       |   |-- dependencies.py       <-- Auth middleware (get_current_user)
-|       |   |-- llm.py                <-- Claude AI client
-|       |   +-- storage.py            <-- S3 file storage client
-|       |
-|       |-- models/                   <-- Database table definitions (DO NOT MODIFY)
-|       |-- schemas/                  <-- API request/response types (DO NOT MODIFY)
-|       |-- auth/                     <-- Login/register endpoints (DONE)
-|       |-- projects/                 <-- Project CRUD endpoints (DONE)
-|       |-- system/                   <-- Health check endpoint (DONE)
-|       |
-|       |-- phases/                   <-- THE 3 PIPELINE PHASES
-|       |   |-- base_agent.py         <-- Base class all agents inherit from
-|       |   |-- script_to_trailer/    <-- Phase 1 (Developer 1)
-|       |   |-- trailer_to_storyboard/<-- Phase 2 (Developer 2)
-|       |   +-- storyboard_to_movie/  <-- Phase 3 (Developer 3)
-|       |
-|       +-- workflow/                 <-- Pipeline orchestration (runs all 3 phases)
-|
-+-- client/                           <-- React frontend
-|   +-- src/
-|       |-- lib/api.ts                <-- REST API client
-|       |-- pages/                    <-- Page components
-|       +-- components/               <-- UI components
-|
-+-- drizzle/                          <-- Legacy schema (reference only, do not use)
-```
-
-### Key Documentation Files
-
-| File | What It Covers |
-|------|---------------|
-| [`backend/CLAUDE.md`](script_to_movie/backend/CLAUDE.md) | Backend developer guide: setup, architecture, code examples |
-| [`backend/app/phases/script_to_trailer/README.md`](script_to_movie/backend/app/phases/script_to_trailer/README.md) | Phase 1 developer guide |
-| [`backend/app/phases/script_to_trailer/PLAN.md`](script_to_movie/backend/app/phases/script_to_trailer/PLAN.md) | Phase 1 task checklist |
-| [`backend/app/phases/trailer_to_storyboard/README.md`](script_to_movie/backend/app/phases/trailer_to_storyboard/README.md) | Phase 2 developer guide |
-| [`backend/app/phases/trailer_to_storyboard/PLAN.md`](script_to_movie/backend/app/phases/trailer_to_storyboard/PLAN.md) | Phase 2 task checklist |
-| [`backend/app/phases/storyboard_to_movie/README.md`](script_to_movie/backend/app/phases/storyboard_to_movie/README.md) | Phase 3 developer guide |
-| [`backend/app/phases/storyboard_to_movie/PLAN.md`](script_to_movie/backend/app/phases/storyboard_to_movie/PLAN.md) | Phase 3 task checklist |
-| [`backend/app/core/README.md`](script_to_movie/backend/app/core/README.md) | Core infrastructure reference |
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Python 3.11 or newer
-- Node.js 18 or newer
-- MySQL 8.0 or newer
-- pnpm (for the frontend)
-
-### 1. Start the Database
-
-```bash
-# Option A: Using Docker (recommended)
-docker run -d --name mysql \
-  -e MYSQL_ROOT_PASSWORD=password \
-  -e MYSQL_DATABASE=script_to_movie \
-  -p 3306:3306 mysql:8
-
-# Option B: Using existing MySQL
-mysql -u root -p -e "CREATE DATABASE script_to_movie;"
-```
-
-### 2. Set Up the Backend
-
-```bash
-cd script_to_movie/backend
-
-# Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate    # On Windows: .venv\Scripts\activate
-
-# Install dependencies
-pip install -e ".[dev]"
-
-# Create your .env file
-cp .env.example .env
-# Edit .env with your API keys (at minimum: DATABASE_URL, JWT_SECRET, ANTHROPIC_API_KEY)
-
-# Run database migrations
-alembic upgrade head
-
-# Start the backend server
-uvicorn app.main:app --reload --port 8000
-```
-
-### 3. Start the Frontend
-
-```bash
-cd script_to_movie
-
-# Install dependencies
-pnpm install
-
-# Start dev server (proxies API requests to the backend)
-pnpm dev
-```
-
-### 4. Verify Everything Works
-
-- Frontend: http://localhost:5173
-- API docs (interactive): http://localhost:8000/docs
-- Health check: http://localhost:8000/api/system/health
-
----
-
-## For Phase Developers
-
-Each phase is assigned to one developer. You only modify files in your phase directory.
-
-### Your Workflow
-
-1. **Read your phase's README.md** in `backend/app/phases/<your-phase>/README.md` -- this is your complete developer guide
-2. **Read your phase's PLAN.md** in `backend/app/phases/<your-phase>/PLAN.md` -- this is your task checklist
-3. **Read `backend/CLAUDE.md`** -- this explains the shared infrastructure you'll use
-4. **Switch to your feature branch**:
-   - Phase 1: `git checkout phase-1/script-to-trailer`
-   - Phase 2: `git checkout phase-2/trailer-to-storyboard`
-   - Phase 3: `git checkout phase-3/storyboard-to-movie`
-5. **Implement your agents** following the order in your README
-6. **Test with curl commands** listed in your README
-
-### What You CAN Modify
-
-Only files inside your phase directory:
-- `backend/app/phases/script_to_trailer/` (Phase 1 developer)
-- `backend/app/phases/trailer_to_storyboard/` (Phase 2 developer)
-- `backend/app/phases/storyboard_to_movie/` (Phase 3 developer)
-
-### What You CANNOT Modify
-
-Everything else is shared infrastructure:
-- `app/core/` -- database, auth, LLM client, storage
-- `app/models/` -- database table definitions
-- `app/schemas/` -- API types
-- `app/auth/` -- authentication endpoints
-- `app/projects/` -- project endpoints
-- `app/phases/base_agent.py` -- base class for agents
-
----
-
-## API Reference
-
-### Authentication (implemented)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/auth/me` | Get current logged-in user |
-| POST | `/api/auth/register` | Create a new account |
-| POST | `/api/auth/login` | Log in with email/password |
-| POST | `/api/auth/logout` | Log out (clears session cookie) |
-
-### Projects (implemented)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/projects` | Create a new project with a script |
-| GET | `/api/projects` | List your projects |
-| GET | `/api/projects/{id}` | Get a specific project |
-| GET | `/api/projects/{id}/scenes` | Get all scenes for a project |
-| GET | `/api/projects/{id}/characters` | Get all characters |
-| GET | `/api/projects/{id}/settings` | Get all settings/locations |
-| GET | `/api/projects/{id}/storyboards` | Get storyboard frames |
-| GET | `/api/projects/{id}/movie` | Get the final movie |
-
-### Phase 1: Script to Trailer (to be implemented)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/phases/script-to-trailer/{id}/analyze` | Parse script into scenes |
-| POST | `/api/phases/script-to-trailer/{id}/characters` | Generate character descriptions |
-| POST | `/api/phases/script-to-trailer/{id}/settings` | Generate setting descriptions |
-| POST | `/api/phases/script-to-trailer/{id}/trailer` | Generate trailer + extract frames |
-
-### Phase 2: Trailer to Storyboard (to be implemented)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/phases/trailer-to-storyboard/{id}/generate` | Validate/regenerate storyboard |
-| GET | `/api/phases/trailer-to-storyboard/{id}/status` | Check generation status |
-
-### Phase 3: Storyboard to Movie (to be implemented)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/phases/storyboard-to-movie/{id}/prompts` | Generate video prompts |
-| POST | `/api/phases/storyboard-to-movie/{id}/generate` | Generate video clips |
-| POST | `/api/phases/storyboard-to-movie/{id}/assemble` | Assemble final movie |
-| GET | `/api/phases/storyboard-to-movie/{id}/status` | Check generation status |
-
-### Workflow (to be implemented)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/workflow/{id}/start` | Run all 3 phases automatically |
-| GET | `/api/workflow/{id}/status` | Check pipeline progress |
-| POST | `/api/workflow/{id}/pause` | Pause the pipeline |
-| POST | `/api/workflow/{id}/resume` | Resume the pipeline |
-
-### System (implemented)
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/system/health` | Health check |
-
----
-
-## Database Schema
-
-```
-users
-  |-- id, email, name, passwordHash, role, openId
-  |
-  +-- projects (one user has many projects)
-        |-- id, userId, title, description, scriptContent
-        |-- status, progress, trailerUrl, trailerKey
-        |
-        +-- scenes (one project has many scenes)
-        |     |-- id, projectId, sceneNumber, title
-        |     |-- description, dialogue, setting
-        |     |-- characters (JSON), duration, order
-        |     |
-        |     +-- storyboardImages (one scene has one frame)
-        |     |     |-- id, sceneId, projectId, imageUrl, imageKey, prompt, status
-        |     |
-        |     +-- videoPrompts (one scene has one video prompt)
-        |     |     |-- id, sceneId, projectId, prompt, duration, style
-        |     |
-        |     +-- generatedVideos (one scene has one video clip)
-        |           |-- id, sceneId, projectId, videoUrl, videoKey, duration, status
-        |
-        +-- characters (one project has many characters)
-        |     |-- id, projectId, name, description, visualDescription
-        |
-        +-- settings (one project has many settings/locations)
-        |     |-- id, projectId, name, description, visualDescription
-        |
-        +-- finalMovies (one project has one final movie)
-              |-- id, projectId, movieUrl, movieKey, duration, status
-```
-
-### How Data Flows Between Phases
-
-```
-Phase 1 WRITES:                      Phase 2 READS:
-  Scene records (with dialogue)  -->   Scene records
-  Character records              -->   Character records (visualDescription)
-  Setting records                -->   Setting records (visualDescription)
-  StoryboardImage records        -->   StoryboardImage records
-  Project.trailerUrl
-
-Phase 2 WRITES:                      Phase 3 READS:
-  Updated StoryboardImage        -->   StoryboardImage records (imageUrl)
-  records (validated/regenerated)      Scene records (description, dialogue)
-
-Phase 3 WRITES:
-  VideoPrompt records
-  GeneratedVideo records
-  FinalMovie record
-  Project.status = "completed"
-```
+- **Phases communicate only through the database.** Phase 2 reads what Phase 1 wrote. Phase 3 reads what Phase 2 wrote. No code is imported between phases.
+- **Every scene must have a storyboard frame.** Phase 3 uses these as visual references for video generation.
+- **Character visual descriptions must be detailed and consistent.** The same character should look the same across every scene.
+- **During Stage 1, use mock videos.** The Kling AI integration is only switched on in Stage 2. See the Developer Guide for the `MOCK_VIDEO` flag pattern.
 
 ---
 
@@ -371,9 +93,176 @@ Phase 3 WRITES:
 |-------|------------|---------|
 | Backend | Python 3.11+, FastAPI | REST API server |
 | Database | MySQL + SQLAlchemy 2.0 (async) | Data storage |
-| Migrations | Alembic | Database schema changes |
-| AI/LLM | Claude API (Anthropic Python SDK) | Script analysis, prompt generation |
-| Auth | JWT (python-jose) + bcrypt (passlib) | User authentication |
-| Storage | AWS S3 | Images, videos, final movies |
+| Migrations | Alembic | Database schema management |
+| AI / LLM | Claude API (Anthropic) | Script parsing, prompt generation |
+| Video generation | Kling AI | Image-to-video clips (Stage 2+) |
+| Audio | gTTS | Text-to-speech dialogue audio |
+| Video assembly | ffmpeg | Merges clips, adds audio, assembles movie |
+| Auth | JWT + bcrypt | User authentication |
+| Storage | AWS S3 | Images, videos, final movies (Stage 3+) |
 | Frontend | React 19, TypeScript, Tailwind CSS 4 | User interface |
-| API Client | React Query | Frontend data fetching |
+| API client | React Query | Frontend data fetching |
+
+---
+
+## Project Structure
+
+```
+content_creator/
+├── script_to_movie/
+│   ├── DEVELOPER_GUIDE.md              ← Full development lifecycle guide (start here)
+│   ├── AWS_SETUP_GUIDE.md              ← AWS deployment (Stage 3)
+│   ├── AGENT_ARCHITECTURE.md           ← How the agent system works
+│   ├── AGENT_INTEGRATION_GUIDE.md      ← How frontend talks to backend
+│   │
+│   ├── backend/                        ← Python FastAPI backend
+│   │   ├── CLAUDE.md                   ← Backend developer reference
+│   │   ├── .env.example                ← Environment variable template
+│   │   └── app/
+│   │       ├── core/                   ← Shared infrastructure (do not modify)
+│   │       ├── models/                 ← Database table definitions (do not modify)
+│   │       ├── schemas/                ← API types (do not modify)
+│   │       ├── auth/                   ← Auth endpoints (complete)
+│   │       ├── projects/               ← Project CRUD endpoints (complete)
+│   │       └── phases/                 ← The 3 pipeline phases (this is where you work)
+│   │           ├── script_to_trailer/      ← Phase 1
+│   │           ├── trailer_to_storyboard/  ← Phase 2
+│   │           └── storyboard_to_movie/    ← Phase 3
+│   │
+│   ├── client/                         ← React frontend
+│   └── server/                         ← Node.js tRPC server
+```
+
+### Key documentation
+
+| File | What it covers |
+|------|---------------|
+| [`DEVELOPER_GUIDE.md`](DEVELOPER_GUIDE.md) | Full development lifecycle — setup, stages, quality criteria, deployment, Decode Shorts integration |
+| [`script_to_movie/backend/CLAUDE.md`](script_to_movie/backend/CLAUDE.md) | Backend developer reference: architecture, code examples, shared modules |
+| [`script_to_movie/AWS_SETUP_GUIDE.md`](script_to_movie/AWS_SETUP_GUIDE.md) | AWS setup for Stage 3 deployment |
+| `backend/app/phases/*/README.md` | Per-phase developer guide (what inputs you receive, what outputs you produce) |
+| `backend/app/phases/*/PLAN.md` | Per-phase task checklist |
+
+---
+
+## Quick Setup (Local)
+
+Full setup instructions with explanations are in the Developer Guide. For experienced developers, the short version:
+
+```bash
+# 1. Database
+mysql -u root -e "CREATE DATABASE script_to_movie;"
+
+# 2. Backend
+cd script_to_movie/backend
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env          # fill in DATABASE_URL, JWT_SECRET, ANTHROPIC_API_KEY
+alembic upgrade head
+uvicorn app.main:app --reload --port 8000
+
+# 3. Frontend (new terminal)
+cd script_to_movie
+pnpm install && pnpm dev
+```
+
+- Frontend: http://localhost:5173
+- API + interactive docs: http://localhost:8000/docs
+
+**Minimum `.env` for Stage 1:** `DATABASE_URL`, `JWT_SECRET`, `ANTHROPIC_API_KEY`
+**Add for Stage 2:** `KLING_API_KEY`, `KLING_SECRET_KEY`
+**Add for Stage 3:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BUCKET`
+
+---
+
+## Database Schema
+
+```
+users
+  └── projects
+        ├── scenes
+        │     ├── storyboardImages   (1 per scene — Phase 1/2 writes, Phase 3 reads)
+        │     ├── videoPrompts       (1 per scene — Phase 3 writes)
+        │     └── generatedVideos    (1 per scene — Phase 3 writes)
+        ├── characters               (Phase 1 writes — visual descriptions used by all phases)
+        ├── settings                 (Phase 1 writes — visual descriptions used by all phases)
+        └── finalMovies              (Phase 3 writes — the assembled output)
+```
+
+### Data flow between phases
+
+```
+Phase 1 WRITES                    Phase 2 READS
+  Scene records               →     Scene records
+  Character records           →     Character records (visualDescription)
+  Setting records             →     Setting records (visualDescription)
+  StoryboardImage records     →     StoryboardImage records
+
+Phase 2 WRITES                    Phase 3 READS
+  Updated StoryboardImages    →     StoryboardImage records (imageUrl)
+                                    Scene records (description, dialogue)
+
+Phase 3 WRITES
+  VideoPrompt records
+  GeneratedVideo records
+  FinalMovie record
+```
+
+---
+
+## API Reference
+
+Full docs are available at http://localhost:8000/docs when the backend is running.
+
+### Auth
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/auth/register` | Create account |
+| POST | `/api/auth/login` | Log in |
+| POST | `/api/auth/logout` | Log out |
+| GET | `/api/auth/me` | Get current user |
+
+### Projects
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/projects` | Create a new project |
+| GET | `/api/projects` | List your projects |
+| GET | `/api/projects/{id}` | Get a project |
+| GET | `/api/projects/{id}/scenes` | Get scenes |
+| GET | `/api/projects/{id}/characters` | Get characters |
+| GET | `/api/projects/{id}/settings` | Get settings |
+| GET | `/api/projects/{id}/storyboards` | Get storyboard frames |
+| GET | `/api/projects/{id}/movie` | Get final movie |
+
+### Phase 1 — Script to Trailer
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/phases/script-to-trailer/{id}/parse` | Parse script into scenes |
+| POST | `/api/phases/script-to-trailer/{id}/generate-trailer` | Generate trailer + frames |
+| GET | `/api/phases/script-to-trailer/{id}/status` | Check progress |
+
+### Phase 2 — Trailer to Storyboard
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/phases/trailer-to-storyboard/{id}/generate` | Validate/regenerate storyboard |
+| GET | `/api/phases/trailer-to-storyboard/{id}/status` | Check progress |
+
+### Phase 3 — Storyboard to Movie
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/phases/storyboard-to-movie/{id}/prompts` | Generate video prompts |
+| POST | `/api/phases/storyboard-to-movie/{id}/generate` | Generate video clips |
+| POST | `/api/phases/storyboard-to-movie/{id}/assemble` | Assemble final movie |
+| GET | `/api/phases/storyboard-to-movie/{id}/status` | Check progress |
+
+### Full Pipeline
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/workflow/{id}/start` | Run all 3 phases |
+| GET | `/api/workflow/{id}/status` | Check overall progress |

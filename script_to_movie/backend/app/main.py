@@ -8,6 +8,9 @@ from fastapi.staticfiles import StaticFiles
 logging.basicConfig(level=logging.INFO)
 from fastapi.middleware.cors import CORSMiddleware
 
+# Ensure app-level loggers are visible at INFO
+logging.getLogger("app").setLevel(logging.INFO)
+
 from app.config import get_settings
 from app.core.database import Base, engine
 from app.auth.router import router as auth_router
