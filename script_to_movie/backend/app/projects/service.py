@@ -6,6 +6,7 @@ from app.models.scene import Scene
 from app.models.character import Character
 from app.models.setting import Setting
 from app.models.storyboard import StoryboardImage
+from app.models.video import GeneratedVideo
 from app.models.final_movie import FinalMovie
 from app.schemas.project import ProjectCreate
 
@@ -62,6 +63,13 @@ async def get_settings(db: AsyncSession, project_id: int) -> list[Setting]:
 async def get_storyboards(db: AsyncSession, project_id: int) -> list[StoryboardImage]:
     result = await db.execute(
         select(StoryboardImage).where(StoryboardImage.projectId == project_id)
+    )
+    return list(result.scalars().all())
+
+
+async def get_generated_videos(db: AsyncSession, project_id: int) -> list[GeneratedVideo]:
+    result = await db.execute(
+        select(GeneratedVideo).where(GeneratedVideo.projectId == project_id)
     )
     return list(result.scalars().all())
 

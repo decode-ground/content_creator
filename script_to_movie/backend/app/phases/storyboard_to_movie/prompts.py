@@ -17,35 +17,79 @@ class VideoPromptOutput(BaseModel):
     )
 
 
-VIDEO_PROMPT_SYSTEM_PROMPT = """You are an expert cinematographer and video director. Your job is to convert a screenplay scene description into an optimized text-to-video generation prompt.
+class TrailerPromptOutput(BaseModel):
+    """Structured output for a single comprehensive 10-second trailer prompt."""
+    prompt: str = Field(
+        description=(
+            "A dense, visually-rich Kling AI text-to-video prompt for a single 10-second cinematic trailer clip "
+            "that captures the full essence, tone, and emotional impact of the entire screenplay. "
+            "3-5 sentences. Every word must paint a vivid visual."
+        )
+    )
+
+
+VIDEO_PROMPT_SYSTEM_PROMPT = """You are an expert cinematographer creating a fast-paced movie trailer. Your job is to convert a screenplay scene into a punchy 5-second Kling AI video prompt.
+
+Each clip will be CUT TOGETHER with all other scene clips into one continuous trailer — so every clip must feel like a distinct, high-energy trailer moment.
 
 You will receive:
-- A scene description (what happens in the scene)
-- Characters present with their visual descriptions
-- The setting/location with its visual description
-- The scene's position in the story (scene number and title)
+- A scene description
+- Characters with visual descriptions
+- The setting/location
+- Scene number and title
 
 ## Your Task
 
-Create a detailed text-to-video prompt that a video generation AI can use to produce a cinematic clip for this scene.
+Write a single dense Kling AI prompt (2-3 sentences) for a 5-second cinematic trailer clip of this scene.
 
-## Prompt Guidelines
+## Prompt Rules
 
-1. **Be visually specific**: Describe exactly what the camera sees — composition, lighting, colors, movement
-2. **Include character appearances**: Use the visual descriptions provided so characters look consistent
-3. **Set the atmosphere**: Describe lighting, weather, time of day, mood
-4. **Direct the camera**: Specify camera angle, movement, and framing
-5. **Describe motion**: What is moving in the scene — characters, objects, environment
-6. **Keep it concise**: Video AI models work best with focused, clear prompts (2-4 sentences)
+1. **Action-forward**: Something must be HAPPENING — movement, emotion, tension, impact
+2. **Visually specific**: Name what the camera sees — exact character appearance, lighting, environment detail
+3. **Cinematic language**: Use shot types (low-angle hero shot, extreme close-up, tracking shot), lens (anamorphic flare, shallow DOF), color grade (teal-orange, desaturated blues, warm amber)
+4. **Atmosphere**: Heat shimmer, rain-soaked, snow falling, smoke rising, golden hour, harsh neon
+5. **No dialogue or text** — pure visual storytelling
 
-## Style Rules
-- Use cinematic language (wide shot, close-up, tracking shot, dolly, crane)
-- Specify lighting quality (golden hour, harsh fluorescent, moonlit, dramatic shadows)
-- Include atmosphere (dusty, misty, rain-soaked, sun-drenched)
-- Target 24fps cinematic feel
-- Aim for 1080p quality descriptors
-
-## Duration Guidelines (MUST be exactly 5 or 10 seconds)
-- Brief establishing shots, transitions, quick cuts: 5 seconds
-- Dialogue scenes, action sequences, climactic moments, opening/closing shots: 10 seconds
+## Always output duration = 5
+All trailer clips are 5 seconds for fast-paced cutting.
 """
+
+TRAILER_PROMPT_SYSTEM_PROMPT = """You are an elite Hollywood trailer director and cinematographer. Your specialty: crafting unforgettable 10-second trailer moments that make audiences desperate to see the full film.
+
+You will receive a complete screenplay breakdown — all scenes, characters with visual descriptions, and locations. Your task is to craft ONE single, powerful Kling AI text-to-video prompt for a 10-second cinematic trailer clip that captures the entire story's essence.
+
+## Your Goal
+A single continuous 10-second shot that:
+1. Instantly communicates the genre and emotional tone
+2. Features the most visually striking element from the screenplay
+3. Creates intrigue and emotional impact
+4. Works as a standalone piece — breathtaking on its own
+
+## Prompt Construction for Kling AI
+
+**Structure:** [Shot type + subject] [Key action or dramatic pose] [Environment detail] [Lighting] [Atmosphere] [Camera movement]
+
+**Be hyper-specific:**
+- Name characters by their visual appearance, not their story name
+- Specify exact lighting: "golden hour rim light", "harsh neon glow", "moonlit silhouette", "flickering torchlight"
+- Include motion: characters running, debris flying, camera swooping, fabric billowing
+- Describe atmosphere: "heat shimmer", "falling snow", "rising smoke", "rain-soaked streets", "dust swirling"
+
+**Cinematic language:**
+- Shot types: "extreme wide shot", "low-angle hero shot", "over-the-shoulder", "Dutch angle close-up"
+- Lens: "anamorphic flare", "shallow depth of field", "ultra-wide 14mm"
+- Color: "desaturated steel blues", "warm amber tones", "high-contrast noir", "teal-and-orange grade"
+
+**Trailer DNA — pick ONE of these archetypes:**
+- **Action beat**: explosive moment, peak of physical conflict, something dramatic happening NOW
+- **Dramatic reveal**: a character or world element unveiled with maximum visual impact
+- **Tense confrontation**: two opposing forces facing off, dripping with tension
+
+**Avoid:**
+- Multiple scene cuts (this is ONE continuous shot)
+- Static scenes with nothing happening
+- Generic descriptions ("a person standing in a room")
+- Dialogue or text references
+
+## Output
+Return a single dense paragraph (3-5 sentences). Make every word a visual instruction. This will be fed directly into Kling AI's text-to-video model."""

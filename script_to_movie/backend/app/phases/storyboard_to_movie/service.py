@@ -27,11 +27,10 @@ CRITICAL REQUIREMENTS:
 
 The workflow orchestrator calls: await run_phase(db, project_id)
 """
-import asyncio
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import llm_client
@@ -49,6 +48,7 @@ from app.phases.storyboard_to_movie.prompts import (
     VideoPromptOutput,
 )
 from app.phases.storyboard_to_movie.video_generator import (
+    VideoClip,
     generate_video_clip,
     assemble_trailer,
 )
@@ -77,11 +77,8 @@ async def run_phase(db: AsyncSession, project_id: int) -> dict:
 
 
 async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
-    """Generate a video trailer from a parsed script.
-
-    Takes the project's scenes, characters, and settings (produced by Phase 1),
-    generates optimized video prompts for each scene using Claude, creates
-    video clips, and assembles them into a final trailer.
+    """Generate a fast-paced multi-scene trailer by creating a 5-second clip for every
+    scene and concatenating them with ffmpeg into one continuous video.
     """
     # 1. Fetch project and verify it's been parsed
     result = await db.execute(select(Project).where(Project.id == project_id))
@@ -89,18 +86,24 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
     if not project:
         raise ValueError(f"Project {project_id} not found")
 
-    if project.status not in ("parsed", "completed", "failed"):
+    if project.status not in ("parsed", "generating_videos", "completed", "failed"):
         raise ValueError(
             f"Project must be parsed before generating trailer. Current status: {project.status}"
         )
 
-    # 2. Update status
+    # 2. Clean up old records from previous runs
+    await db.execute(delete(GeneratedVideo).where(GeneratedVideo.projectId == project_id))
+    await db.execute(delete(VideoPrompt).where(VideoPrompt.projectId == project_id))
+    await db.execute(delete(FinalMovie).where(FinalMovie.projectId == project_id))
+    await db.commit()
+
+    # 3. Update status
     project.status = "generating_videos"
     project.progress = 5
     await db.commit()
 
     try:
-        # 3. Fetch scenes, characters, settings
+        # 4. Fetch scenes, characters, settings
         scenes_result = await db.execute(
             select(Scene).where(Scene.projectId == project_id).order_by(Scene.order)
         )
@@ -119,14 +122,18 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
         if not scenes:
             raise ValueError("No scenes found — run Parse Script first")
 
-        # Build lookup maps
         character_map = {c.name: c for c in characters}
         setting_map = {s.name: s for s in settings}
-
         total_scenes = len(scenes)
 
-        # Phase A: Generate all video prompts (sequential — uses Claude LLM)
-        video_prompts_by_scene = []
+        logger.info(
+            "Generating trailer for project %d: %d scenes × 5s clips",
+            project_id,
+            total_scenes,
+        )
+
+        # Phase A: Generate per-scene video prompts via Claude (fast, sequential)
+        video_prompts_by_scene: list[tuple] = []
 
         for i, scene in enumerate(scenes):
             scene_characters = json.loads(scene.characters or "[]")
@@ -145,22 +152,21 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
                 f"Scene {scene.sceneNumber}: {scene.title}\n\n"
                 f"Description: {scene.description}\n\n"
                 f"Characters present:\n{char_descriptions or 'No specific characters'}\n\n"
-                f"{setting_description or 'No specific setting description'}\n\n"
-                f"Scene duration target: {scene.duration or 8} seconds"
+                f"{setting_description or 'No specific setting description'}"
             )
 
             video_prompt: VideoPromptOutput = await llm_client.invoke_structured(
                 messages=[{"role": "user", "content": user_message}],
                 output_schema=VideoPromptOutput,
                 system=VIDEO_PROMPT_SYSTEM_PROMPT,
-                max_tokens=2048,
+                max_tokens=1024,
             )
 
             db_video_prompt = VideoPrompt(
                 sceneId=scene.id,
                 projectId=project_id,
                 prompt=video_prompt.prompt,
-                duration=video_prompt.duration,
+                duration=5,  # always 5s for fast-paced trailer cuts
                 style=f"{video_prompt.style} | {video_prompt.cameraMovement}",
             )
             db.add(db_video_prompt)
@@ -168,22 +174,28 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
 
             video_prompts_by_scene.append((scene, video_prompt))
 
-            project.progress = int(((i + 1) / total_scenes) * 40) + 5
+            project.progress = int(((i + 1) / total_scenes) * 30) + 5
             await db.commit()
 
         logger.info(
-            "All %d video prompts generated for project %d — submitting to Kling in parallel",
+            "All %d prompts generated for project %d — generating clips sequentially",
             total_scenes,
             project_id,
         )
-        project.progress = 45
+        project.progress = 35
         await db.commit()
 
-        # Phase B: Generate all video clips in PARALLEL (all Kling tasks run simultaneously)
-        async def _generate_and_store(scene: Scene, vp: VideoPromptOutput) -> VideoClip:
+        # Phase B: Generate one 5-second clip per scene, sequentially
+        clips: list[VideoClip] = []
+
+        for i, (scene, vp) in enumerate(video_prompts_by_scene):
+            logger.info(
+                "Generating clip %d/%d for project %d (scene %d)",
+                i + 1, total_scenes, project_id, scene.id,
+            )
             clip = await generate_video_clip(
                 prompt=vp.prompt,
-                duration=vp.duration,
+                duration=5,
                 project_id=project_id,
                 scene_id=scene.id,
             )
@@ -197,17 +209,21 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
             )
             db.add(db_video)
             await db.commit()
-            return clip
 
-        clips = await asyncio.gather(
-            *[_generate_and_store(scene, vp) for scene, vp in video_prompts_by_scene]
-        )
-        clips = list(clips)
+            clips.append(clip)
+
+            project.progress = 35 + int(((i + 1) / total_scenes) * 55)
+            await db.commit()
 
         project.progress = 90
         await db.commit()
 
-        # 6. Assemble trailer from clips
+        # Phase C: Concatenate all clips into one trailer with ffmpeg
+        logger.info(
+            "Assembling trailer for project %d from %d clips",
+            project_id,
+            len(clips),
+        )
         trailer = await assemble_trailer(clips, project_id)
 
         db_movie = FinalMovie(
@@ -220,17 +236,17 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
         db.add(db_movie)
         await db.commit()
 
-        # 7. Update project status
         project.status = "completed"
         project.progress = 100
         project.errorMessage = None
         await db.commit()
 
         logger.info(
-            "Trailer generation complete for project %d: %d clips, %ds total",
+            "Trailer complete for project %d: %d clips, %ds total at %s",
             project_id,
             len(clips),
             trailer.totalDuration,
+            trailer.movieUrl,
         )
 
         return {
@@ -247,6 +263,7 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
         project.errorMessage = str(e)
         await db.commit()
         raise
+
 
 
 async def run_video_prompts(db: AsyncSession, project_id: int) -> dict:

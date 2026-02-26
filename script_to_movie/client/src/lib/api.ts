@@ -76,6 +76,8 @@ export const projectsApi = {
     request<Setting[]>(`/projects/${projectId}/settings`),
   getStoryboards: (projectId: number) =>
     request<StoryboardImage[]>(`/projects/${projectId}/storyboards`),
+  getGeneratedVideos: (projectId: number) =>
+    request<GeneratedVideo[]>(`/projects/${projectId}/videos`),
   getFinalMovie: (projectId: number) =>
     request<FinalMovie | null>(`/projects/${projectId}/movie`),
 };
@@ -214,6 +216,19 @@ export interface StoryboardImage {
   imageKey: string;
   prompt: string | null;
   status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GeneratedVideo {
+  id: number;
+  sceneId: number;
+  projectId: number;
+  videoUrl: string | null;
+  videoKey: string | null;
+  duration: number | null;
+  status: string;
+  errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
 }

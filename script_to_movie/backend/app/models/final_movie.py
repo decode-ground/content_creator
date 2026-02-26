@@ -11,7 +11,7 @@ class FinalMovie(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     projectId: Mapped[int] = mapped_column(Integer, ForeignKey("projects.id"), nullable=False)
-    movieUrl: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    movieUrl: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     movieKey: Mapped[str | None] = mapped_column(String(512), nullable=True)
     duration: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")

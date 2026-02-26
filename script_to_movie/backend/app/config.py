@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     # Kling AI
     kling_api_key: str = ""
     kling_secret_key: str = ""
+    kling_model: str = "kling-v2-master"
 
     # AWS S3
     aws_access_key_id: str = ""

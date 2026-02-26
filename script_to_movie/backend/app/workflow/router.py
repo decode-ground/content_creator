@@ -27,13 +27,13 @@ async def start_workflow_endpoint(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if project.status not in ("draft", "failed"):
+    if project.status not in ("draft", "failed", "parsed", "generating_videos", "completed"):
         raise HTTPException(
             status_code=400,
             detail=f"Cannot start workflow: project status is '{project.status}'",
         )
 
-    project.status = "starting"
+    project.status = "parsing"
     project.progress = 0
     project.errorMessage = None
     await db.commit()

@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import AsyncSessionLocal
 from app.models.project import Project
-from app.phases.script_to_trailer.service import run_phase1
 
 logger = logging.getLogger(__name__)
 
@@ -45,25 +44,10 @@ async def _run_pipeline(project_id: int) -> None:
 
 
 async def start_workflow(project_id: int, workflow_type: str) -> None:
-    """Start the pipeline as a background task. Returns immediately.
+    """Start the full pipeline: Parse Script → Generate Trailer with Kling AI.
 
-    Uses its own DB session since it runs detached from the request lifecycle.
-    Signature matches what main's workflow router expects:
-        asyncio.create_task(start_workflow(project_id, body.workflowType))
+    Delegates to _run_pipeline which handles Phase 1 (Claude script analysis)
+    and Phase 3 (Kling AI video generation) in sequence.
     """
     logger.info(f"Workflow '{workflow_type}' starting for project {project_id}")
-
-    async with AsyncSessionLocal() as db:
-        try:
-            if workflow_type == "full_pipeline":
-                # Phase 1: Script to Trailer (sub-agent orchestration)
-                await run_phase1(db, project_id)
-
-                # Phase 2 & 3 will be added by other developers
-                logger.info(f"Workflow complete for project {project_id}")
-            else:
-                raise ValueError(f"Unknown workflow type: {workflow_type}")
-
-        except Exception as e:
-            logger.error(f"Workflow failed for project {project_id}: {e}")
-            # Error status is already set by run_phase1's error handler
+    await _run_pipeline(project_id)

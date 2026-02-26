@@ -10,7 +10,7 @@ from app.schemas.scene import SceneResponse
 from app.schemas.character import CharacterResponse
 from app.schemas.setting import SettingResponse
 from app.schemas.storyboard import StoryboardImageResponse
-from app.schemas.video import FinalMovieResponse
+from app.schemas.video import GeneratedVideoResponse, FinalMovieResponse
 from app.projects import service
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -85,6 +85,14 @@ async def get_storyboards(
     db: Annotated[AsyncSession, Depends(get_db)],
 ):
     return await service.get_storyboards(db, project_id)
+
+
+@router.get("/{project_id}/videos", response_model=list[GeneratedVideoResponse])
+async def get_generated_videos(
+    project_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    return await service.get_generated_videos(db, project_id)
 
 
 @router.get("/{project_id}/movie", response_model=FinalMovieResponse | None)
