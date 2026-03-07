@@ -113,9 +113,15 @@ class StoryboardPromptAgent(BaseAgent):
         )
         setting_map = {s.name: s for s in settings_result.scalars().all()}
 
-        # 3. Download trailer video from S3
+        # 3. Download or read trailer video (local file or S3)
         self.logger.info("Downloading trailer for project %d", project_id)
-        video_bytes = await storage_client.download(project.trailerKey)
+        if project.trailerKey.startswith("./"):
+            if not os.path.exists(project.trailerKey):
+                return {"status": "error", "message": f"Local trailer file not found: {project.trailerKey}"}
+            with open(project.trailerKey, "rb") as f:
+                video_bytes = f.read()
+        else:
+            video_bytes = await storage_client.download(project.trailerKey)
 
         frames_extracted = 0
         frames_failed = 0

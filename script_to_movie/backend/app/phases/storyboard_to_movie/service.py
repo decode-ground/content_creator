@@ -234,6 +234,12 @@ async def generate_trailer(db: AsyncSession, project_id: int) -> dict:
             status="completed",
         )
         db.add(db_movie)
+
+        # Store the local trailer path so Phase 2 can extract storyboard frames from it
+        if trailer.movieUrl.startswith("/trailers/"):
+            project.trailerKey = "." + trailer.movieUrl
+            project.trailerUrl = trailer.movieUrl
+
         await db.commit()
 
         project.status = "completed"

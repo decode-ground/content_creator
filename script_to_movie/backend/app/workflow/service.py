@@ -15,6 +15,7 @@ async def _run_pipeline(project_id: int) -> None:
     """Run the full pipeline in a background task with its own DB session."""
     from app.phases.script_to_trailer.service import analyze_script
     from app.phases.storyboard_to_movie.service import generate_trailer
+    from app.phases.trailer_to_storyboard.service import run_generate_storyboards
 
     async with AsyncSessionLocal() as db:
         try:
@@ -31,6 +32,20 @@ async def _run_pipeline(project_id: int) -> None:
             # Phase 3: Generate trailer videos
             logger.info("Starting Phase 3 (trailer generation) for project %d", project_id)
             await generate_trailer(db, project_id)
+
+            # Phase 2: Extract storyboard frames from the generated trailer
+            result = await db.execute(select(Project).where(Project.id == project_id))
+            project = result.scalar_one_or_none()
+            if project and project.trailerKey:
+                logger.info("Starting Phase 2 (storyboard extraction) for project %d", project_id)
+                await run_generate_storyboards(db, project_id)
+                # Restore completed status after Phase 2 finishes
+                result = await db.execute(select(Project).where(Project.id == project_id))
+                project = result.scalar_one_or_none()
+                if project:
+                    project.status = "completed"
+                    project.progress = 100
+                    await db.commit()
 
             logger.info("Pipeline complete for project %d", project_id)
         except Exception as e:

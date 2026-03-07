@@ -150,7 +150,7 @@ TRAILER_SELECTION_PROMPT = """You are a professional film trailer editor. Given 
 Selection criteria:
 - Choose scenes with strong visual potential and dramatic moments
 - Include a mix of action, emotion, and key plot points
-- Aim for 3-6 scenes depending on the total number of scenes (roughly 30-40% of all scenes)
+- Aim for 3-5 scenes depending on the total number of scenes (maximum 5 scenes)
 - Prioritize scenes that would look visually stunning as images/short clips
 - Include the opening hook and climactic moments
 - Avoid spoiling the ending — trailers should tease, not reveal
