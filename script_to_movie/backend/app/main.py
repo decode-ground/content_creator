@@ -64,3 +64,8 @@ app.include_router(system_router)
 trailers_dir = Path("./trailers")
 trailers_dir.mkdir(exist_ok=True)
 app.mount("/trailers", StaticFiles(directory=str(trailers_dir)), name="trailers")
+
+# Mount static files for storyboard frames
+storyboards_dir = Path("./storyboards")
+storyboards_dir.mkdir(exist_ok=True)
+app.mount("/storyboards", StaticFiles(directory=str(storyboards_dir)), name="storyboards")

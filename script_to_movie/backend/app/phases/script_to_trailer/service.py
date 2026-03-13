@@ -30,7 +30,7 @@ The workflow orchestrator calls: await run_phase(db, project_id)
 import json
 import logging
 
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.llm import llm_client
@@ -38,6 +38,8 @@ from app.models.project import Project
 from app.models.scene import Scene
 from app.models.character import Character
 from app.models.setting import Setting
+from app.models.storyboard import StoryboardImage
+from app.models.video import VideoPrompt, GeneratedVideo
 from app.phases.script_to_trailer.prompts import (
     SCRIPT_ANALYSIS_SYSTEM_PROMPT,
     ScriptAnalysisOutput,
@@ -102,7 +104,14 @@ async def analyze_script(db: AsyncSession, project_id: int) -> dict:
     if not project:
         raise ValueError(f"Project {project_id} not found")
 
-    # 2. Update status to parsing
+    # 2. Clear any existing data from previous runs, then update status
+    # Delete child records first to satisfy foreign key constraints
+    await db.execute(delete(VideoPrompt).where(VideoPrompt.projectId == project_id))
+    await db.execute(delete(GeneratedVideo).where(GeneratedVideo.projectId == project_id))
+    await db.execute(delete(StoryboardImage).where(StoryboardImage.projectId == project_id))
+    await db.execute(delete(Scene).where(Scene.projectId == project_id))
+    await db.execute(delete(Character).where(Character.projectId == project_id))
+    await db.execute(delete(Setting).where(Setting.projectId == project_id))
     project.status = "parsing"
     project.progress = 10
     await db.commit()
@@ -149,8 +158,8 @@ async def analyze_script(db: AsyncSession, project_id: int) -> dict:
         project.progress = 80
         await db.commit()
 
-        # 7. Store scenes
-        for scene in analysis.scenes:
+        # 7. Store scenes (cap at 5)
+        for scene in analysis.scenes[:5]:
             db_scene = Scene(
                 projectId=project_id,
                 sceneNumber=scene.sceneNumber,

@@ -494,11 +494,17 @@ export default function ProjectDetail() {
                   {storyboardsQuery.data?.map((image, index) => (
                     <Card key={image.id} className="border-slate-700 bg-slate-800 overflow-hidden hover:border-slate-600 transition-colors">
                       <div className="relative h-56 bg-slate-700 overflow-hidden group">
-                        <img
-                          src={image.imageUrl}
-                          alt={`Scene ${image.sceneId}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        />
+                        {image.imageUrl ? (
+                          <img
+                            src={image.imageUrl}
+                            alt={`Scene ${image.sceneId}`}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-500 text-sm">
+                            No image
+                          </div>
+                        )}
                       </div>
                       <CardContent className="pt-4">
                         <p className="text-sm font-medium text-white">Scene {index + 1}</p>

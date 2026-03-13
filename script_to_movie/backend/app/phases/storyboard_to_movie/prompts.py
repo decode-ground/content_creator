@@ -7,7 +7,7 @@ class VideoPromptOutput(BaseModel):
         description="A detailed text-to-video prompt describing the visual content, action, and atmosphere of the scene"
     )
     duration: int = Field(
-        description="Recommended clip duration in seconds — must be either 5 or 10 (Kling AI supported values)"
+        description="Recommended clip duration in seconds — must be either 5 or 8 (Veo supported values)"
     )
     style: str = Field(
         description="Visual style directive (e.g. 'cinematic dramatic lighting', 'documentary handheld', 'noir high contrast')"
@@ -18,17 +18,17 @@ class VideoPromptOutput(BaseModel):
 
 
 class TrailerPromptOutput(BaseModel):
-    """Structured output for a single comprehensive 10-second trailer prompt."""
+    """Structured output for a single comprehensive 8-second trailer prompt."""
     prompt: str = Field(
         description=(
-            "A dense, visually-rich Kling AI text-to-video prompt for a single 10-second cinematic trailer clip "
+            "A dense, visually-rich text-to-video prompt for a single 8-second cinematic trailer clip "
             "that captures the full essence, tone, and emotional impact of the entire screenplay. "
             "3-5 sentences. Every word must paint a vivid visual."
         )
     )
 
 
-VIDEO_PROMPT_SYSTEM_PROMPT = """You are an expert cinematographer creating a fast-paced movie trailer. Your job is to convert a screenplay scene into a punchy 5-second Kling AI video prompt.
+VIDEO_PROMPT_SYSTEM_PROMPT = """You are an expert cinematographer creating a fast-paced movie trailer. Your job is to convert a screenplay scene into a punchy 5-second video prompt.
 
 Each clip will be CUT TOGETHER with all other scene clips into one continuous trailer — so every clip must feel like a distinct, high-energy trailer moment.
 
@@ -40,7 +40,7 @@ You will receive:
 
 ## Your Task
 
-Write a single dense Kling AI prompt (2-3 sentences) for a 5-second cinematic trailer clip of this scene.
+Write a single dense video prompt (2-3 sentences) for a 5-second cinematic trailer clip of this scene.
 
 ## Prompt Rules
 
@@ -54,18 +54,18 @@ Write a single dense Kling AI prompt (2-3 sentences) for a 5-second cinematic tr
 All trailer clips are 5 seconds for fast-paced cutting.
 """
 
-TRAILER_PROMPT_SYSTEM_PROMPT = """You are an elite Hollywood trailer director and cinematographer. Your specialty: crafting unforgettable 10-second trailer moments that make audiences desperate to see the full film.
+TRAILER_PROMPT_SYSTEM_PROMPT = """You are an elite Hollywood trailer director and cinematographer. Your specialty: crafting unforgettable 8-second trailer moments that make audiences desperate to see the full film.
 
-You will receive a complete screenplay breakdown — all scenes, characters with visual descriptions, and locations. Your task is to craft ONE single, powerful Kling AI text-to-video prompt for a 10-second cinematic trailer clip that captures the entire story's essence.
+You will receive a complete screenplay breakdown — all scenes, characters with visual descriptions, and locations. Your task is to craft ONE single, powerful text-to-video prompt for an 8-second cinematic trailer clip that captures the entire story's essence.
 
 ## Your Goal
-A single continuous 10-second shot that:
+A single continuous 8-second shot that:
 1. Instantly communicates the genre and emotional tone
 2. Features the most visually striking element from the screenplay
 3. Creates intrigue and emotional impact
 4. Works as a standalone piece — breathtaking on its own
 
-## Prompt Construction for Kling AI
+## Prompt Construction
 
 **Structure:** [Shot type + subject] [Key action or dramatic pose] [Environment detail] [Lighting] [Atmosphere] [Camera movement]
 
@@ -92,4 +92,4 @@ A single continuous 10-second shot that:
 - Dialogue or text references
 
 ## Output
-Return a single dense paragraph (3-5 sentences). Make every word a visual instruction. This will be fed directly into Kling AI's text-to-video model."""
+Return a single dense paragraph (3-5 sentences). Make every word a visual instruction."""

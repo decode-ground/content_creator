@@ -101,6 +101,25 @@ async function startServer() {
     proxyReq.end();
   });
 
+  // Proxy /storyboards/* static files to FastAPI backend on port 8000
+  app.use("/storyboards", (req, res) => {
+    const options: http.RequestOptions = {
+      hostname: "localhost",
+      port: 8000,
+      path: `/storyboards${req.path}`,
+      method: "GET",
+      headers: { ...req.headers, host: "localhost:8000" },
+    };
+    const proxyReq = http.request(options, (proxyRes) => {
+      res.writeHead(proxyRes.statusCode || 500, proxyRes.headers);
+      proxyRes.pipe(res, { end: true });
+    });
+    proxyReq.on("error", () => {
+      res.status(502).json({ error: "Backend unavailable" });
+    });
+    proxyReq.end();
+  });
+
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

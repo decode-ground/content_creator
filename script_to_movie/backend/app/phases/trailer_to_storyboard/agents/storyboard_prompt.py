@@ -6,11 +6,13 @@ import logging
 import os
 import subprocess
 import tempfile
+from pathlib import Path
 
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.storage import storage_client
 from app.models.character import Character
 from app.models.project import Project
@@ -138,13 +140,13 @@ class StoryboardPromptAgent(BaseAgent):
                 "Trailer duration: %.1fs for %d scenes", video_duration, len(scenes)
             )
 
-            # Scenes are stored in order; their durations map sequentially to the video
-            cumulative = 0.0
-            scene_windows: list[tuple[float, float]] = []
-            for scene in scenes:
-                duration = scene.duration or 8
-                scene_windows.append((cumulative, cumulative + duration))
-                cumulative += duration
+            # Divide the trailer evenly across scenes — each scene gets an equal slice
+            # (trailer clips are all the same duration regardless of scene.duration)
+            clip_duration = video_duration / len(scenes)
+            scene_windows: list[tuple[float, float]] = [
+                (i * clip_duration, (i + 1) * clip_duration)
+                for i in range(len(scenes))
+            ]
 
             # 5. Process each scene
             for i, scene in enumerate(scenes):
@@ -209,28 +211,29 @@ class StoryboardPromptAgent(BaseAgent):
 
                 if best_idx < 0:
                     self.logger.warning(
-                        "Scene %d: Claude Vision found no adequate frame among %d candidates",
-                        scene.sceneNumber, len(candidates),
+                        "Scene %d: Claude Vision found no adequate frame — using middle candidate as fallback",
+                        scene.sceneNumber,
                     )
-                    frames_failed += 1
-                    errors.append(f"Scene {scene.sceneNumber}: no adequate frame found")
-                    await self._upsert_storyboard(
-                        db, scene, project_id,
-                        image_url="", image_key="",
-                        prompt=f"No adequate frame found at t={start_ts:.1f}–{actual_end:.1f}s",
-                        status="failed",
-                    )
-                    continue
+                    best_idx = len(candidates) // 2
 
-                # 7. Upload the selected frame to S3
+                # 7. Upload the selected frame (S3 if configured, local fallback otherwise)
                 image_key = (
                     f"projects/{project_id}/storyboard/scene_{scene.sceneNumber}.jpg"
                 )
-                image_url = await storage_client.upload(
-                    key=image_key,
-                    data=candidates[best_idx],
-                    content_type="image/jpeg",
-                )
+                settings = get_settings()
+                if settings.s3_bucket:
+                    image_url = await storage_client.upload(
+                        key=image_key,
+                        data=candidates[best_idx],
+                        content_type="image/jpeg",
+                    )
+                else:
+                    local_dir = Path("./storyboards") / str(project_id)
+                    local_dir.mkdir(parents=True, exist_ok=True)
+                    local_path = local_dir / f"scene_{scene.sceneNumber}.jpg"
+                    local_path.write_bytes(candidates[best_idx])
+                    image_url = f"/storyboards/{project_id}/scene_{scene.sceneNumber}.jpg"
+                    self.logger.info("S3 not configured — saved frame locally: %s", image_url)
 
                 await self._upsert_storyboard(
                     db, scene, project_id,

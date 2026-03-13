@@ -45,7 +45,7 @@ async def analyze_script(db: AsyncSession, project: Project) -> list[Scene]:
     logger.info(f"Extracted {len(result.scenes)} scenes from script")
 
     scenes = []
-    for scene_data in result.scenes:
+    for scene_data in result.scenes[:5]:
         scene = Scene(
             projectId=project.id,
             sceneNumber=scene_data.sceneNumber,
